@@ -45,6 +45,8 @@ public class MainActivity extends Activity {
     private float touchX, touchY;
     private boolean pointerMode = false;
     private int pointerX = 960, pointerY = 540;
+    private View topBar, remoteBar;
+    private boolean immersive = false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -73,15 +75,24 @@ public class MainActivity extends Activity {
     private void launchServer(String appId) {
         try {
             if (server != null) server.stop();
-            boolean isolate = getPreferences(0).getBoolean("isolation", true);
-            server = new LocalWebServer(this, appStorage, isolate);
+            String mode = appProfileName(appId);
+            boolean isolate = CompatibilityProfiles.isolate(mode);
+            server = new LocalWebServer(this, appStorage, isolate, true,
+                    CompatibilityProfiles.tvViewport(mode));
             localPort = server.start(appId);
-            record("INFO", "Servidor HTTP em 127.0.0.1:" + localPort + "; COOP/COEP=" + isolate);
-            if (localPort < 17822) record("WARN", "Porta alternativa: IndexedDB pode mudar de origem");
+            record("INFO", "Servidor HTTP em 127.0.0.1:" + localPort
+                    + "; perfil=" + mode + "; COOP/COEP=" + isolate);
+            if (localPort < 17822) record("WARN", "Porta alternativa: origem de armazenamento mudou");
         } catch (Exception e) {
             localPort = 0;
             record("ERROR", "Falha ao abrir servidor local: " + e);
         }
+    }
+
+    private String appProfileName(String appId) {
+        String fallback = getPreferences(0).getString("default_profile", CompatibilityProfiles.BALANCED);
+        return CompatibilityProfiles.normalize(appId == null ? fallback :
+                getPreferences(0).getString("profile_" + appId, fallback));
     }
 
     private int dp(float n) { return (int) (n * getResources().getDisplayMetrics().density + .5f); }
@@ -110,6 +121,7 @@ public class MainActivity extends Activity {
         return c;
     }
     private void showLibrary() {
+        applyImmersiveUi(false);
         currentApp = null;
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -158,6 +170,11 @@ public class MainActivity extends Activity {
             detail.setPadding(0, dp(7), 0, dp(7)); card.addView(detail);
             TextView hint = text("Toque para iniciar · Segure para desinstalar", 12, ACCENT, false);
             card.addView(hint);
+            TextView compatibility = secondaryButton("⚙ " + CompatibilityProfiles.title(appProfileName(app.id)),
+                    () -> showAppCompatibility(app));
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(45));
+            cp.topMargin = dp(10);
+            card.addView(compatibility, cp);
             card.setOnClickListener(v -> startApp(app));
             card.setOnLongClickListener(v -> {
                 new AlertDialog.Builder(this)
@@ -192,23 +209,69 @@ public class MainActivity extends Activity {
     }
 
     private void showSettings() {
-        boolean isolation = getPreferences(0).getBoolean("isolation", true);
-        boolean fakeAgent = getPreferences(0).getBoolean("fakeua", true);
-        String[] opts = {"COOP/COEP para WASM threads (reinicia servidor)", "User-Agent compatível webOS 22", "Forçar orientação paisagem ao iniciar IPK", "Manter tela ligada no jogo"};
-        boolean[] selected = {isolation, fakeAgent,
-            getPreferences(0).getBoolean("landscape", true),
-            getPreferences(0).getBoolean("awake", true)};
+        boolean landscape = getPreferences(0).getBoolean("landscape", true);
+        boolean awake = getPreferences(0).getBoolean("awake", true);
+        String[] opts = {
+            "Perfil padrão: " + CompatibilityProfiles.title(appProfileName(null)),
+            "Forçar paisagem: " + (landscape ? "SIM" : "NÃO"),
+            "Manter tela ligada: " + (awake ? "SIM" : "NÃO"),
+            "Limpar logs de diagnóstico"
+        };
         new AlertDialog.Builder(this)
-            .setTitle("LG UQ8050PSB · compatibilidade")
-            .setMultiChoiceItems(opts, selected, (d, i, checked) -> selected[i] = checked)
-            .setMessage("A resolução 1920×1080 é lógica no perfil. Android WebView não reproduz a GPU/firmware da TV.")
-            .setPositiveButton("Salvar", (d, i) -> {
-                getPreferences(0).edit().putBoolean("isolation", selected[0])
-                    .putBoolean("fakeua", selected[1]).putBoolean("landscape", selected[2])
-                    .putBoolean("awake", selected[3]).apply();
-                if (selected[0] != isolation) launchServer();
-                showLibrary();
+            .setTitle("Configurações · Android WebView")
+            .setItems(opts, (d, i) -> {
+                if (i == 0) selectDefaultProfile();
+                else if (i == 1) { getPreferences(0).edit().putBoolean("landscape", !landscape).apply(); showSettings(); }
+                else if (i == 2) { getPreferences(0).edit().putBoolean("awake", !awake).apply(); showSettings(); }
+                else if (i == 3) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
+            })
+            .setNegativeButton("Fechar", null).show();
+    }
+
+    private void selectDefaultProfile() {
+        String[] names = {
+            CompatibilityProfiles.title(CompatibilityProfiles.BALANCED),
+            CompatibilityProfiles.title(CompatibilityProfiles.LEGACY),
+            CompatibilityProfiles.title(CompatibilityProfiles.THREADED)
+        };
+        String[] ids = {CompatibilityProfiles.BALANCED, CompatibilityProfiles.LEGACY,
+                CompatibilityProfiles.THREADED};
+        new AlertDialog.Builder(this).setTitle("Perfil padrão dos novos IPKs")
+            .setSingleChoiceItems(names, indexOfProfile(appProfileName(null)), (d, which) -> {
+                getPreferences(0).edit().putString("default_profile", ids[which]).apply();
+                launchServer();
+                d.dismiss();
+                showSettings();
             }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private static int indexOfProfile(String id) {
+        if (CompatibilityProfiles.LEGACY.equals(id)) return 1;
+        if (CompatibilityProfiles.THREADED.equals(id)) return 2;
+        return 0;
+    }
+
+    private void showAppCompatibility(IpkInstaller.InstalledApp app) {
+        String[] names = {
+            CompatibilityProfiles.title(CompatibilityProfiles.BALANCED)
+                + "\nSem COOP/COEP; Chromium real; melhor para conteúdo externo.",
+            CompatibilityProfiles.title(CompatibilityProfiles.LEGACY)
+                + "\nUser-Agent LG, viewport 1920×1080; sem isolamento.",
+            CompatibilityProfiles.title(CompatibilityProfiles.THREADED)
+                + "\nCOOP/COEP e viewport 1080p; necessário em alguns WASM multithread."
+        };
+        String[] ids = {CompatibilityProfiles.BALANCED,
+                CompatibilityProfiles.LEGACY, CompatibilityProfiles.THREADED};
+        new AlertDialog.Builder(this)
+            .setTitle("Perfil do IPK · " + app.title)
+            .setSingleChoiceItems(names, indexOfProfile(appProfileName(app.id)), (dialog, which) -> {
+                getPreferences(0).edit().putString("profile_" + app.id, ids[which]).apply();
+                record("PROFILE", app.id + " -> " + ids[which]);
+                dialog.dismiss();
+                if (currentApp != null && currentApp.id.equals(app.id)) startApp(app);
+                else showLibrary();
+            })
+            .setNegativeButton("Cancelar", null).show();
     }
 
     private void record(String level, String message) {
@@ -232,18 +295,27 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void startApp(IpkInstaller.InstalledApp app) {
+        applyImmersiveUi(false);
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+            webView = null;
+        }
         launchServer(app.id);
         if (localPort == 0) { Toast.makeText(this, "Servidor HTTP indisponível", Toast.LENGTH_LONG).show(); return; }
         currentApp = app;
         if (getPreferences(0).getBoolean("landscape", true))
             setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        else setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         if (getPreferences(0).getBoolean("awake", true))
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         main.removeAllViews();
         LinearLayout top = new LinearLayout(this);
         top.setPadding(dp(7), dp(7), dp(7), dp(7));
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setBackgroundColor(PANEL);
+        topBar = top;
         main.addView(top);
         TextView home = secondaryButton("⌂ Biblioteca", this::showLibrary);
         top.addView(home, new LinearLayout.LayoutParams(dp(116), dp(43)));
@@ -263,9 +335,14 @@ public class MainActivity extends Activity {
         ws.setBuiltInZoomControls(false);
         ws.setSupportZoom(false);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-        if (getPreferences(0).getBoolean("fakeua", true))
+        ws.setUseWideViewPort(true);
+        ws.setLoadWithOverviewMode(true);
+        ws.setOffscreenPreRaster(false);
+        if (CompatibilityProfiles.fakeUA(appProfileName(app.id)))
             ws.setUserAgentString(profile.optString("userAgent", ws.getUserAgentString()));
         webView.setBackgroundColor(Color.BLACK);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0)
             WebView.setWebContentsDebuggingEnabled(true);
         webView.addJavascriptInterface(new LunaBridge(), "AndroidLuna");
@@ -301,6 +378,13 @@ public class MainActivity extends Activity {
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    // Never auto-grant microphone/camera from an imported third-party IPK.
+                    record("PERMISSION", "Recursos solicitados: " + java.util.Arrays.toString(request.getResources()));
+                    request.deny();
+                });
+            }
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
                 record("CONSOLE", m.messageLevel() + " " + m.sourceId() + ":" + m.lineNumber() + " " + m.message());
                 return true;
@@ -331,11 +415,22 @@ public class MainActivity extends Activity {
         webView.loadUrl(url);
     }
 
+    private void applyImmersiveUi(boolean enabled) {
+        immersive = enabled && webView != null;
+        if (topBar != null) topBar.setVisibility(immersive ? View.GONE : View.VISIBLE);
+        if (remoteBar != null) remoteBar.setVisibility(immersive ? View.GONE : View.VISIBLE);
+        int flags = immersive ? (View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) : 0;
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
     private void renderRemote() {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER);
         row.setPadding(dp(3), dp(5), dp(3), dp(7));
         row.setBackgroundColor(PANEL);
+        remoteBar = row;
         main.addView(row, new LinearLayout.LayoutParams(-1, dp(65)));
         addKey(row, "◀", "ArrowLeft", 37);
         addKey(row, "▲", "ArrowUp", 38);
@@ -365,14 +460,15 @@ public class MainActivity extends Activity {
     private void applyScale() {
         if (webView == null || currentApp == null) return;
         int zoom = getPreferences(0).getInt("zoom_" + currentApp.id, 100);
-        webView.setInitialScale(zoom);
+        // Scale 0 lets Chromium fit the logical 1080p viewport to the actual Android screen.
+        webView.setInitialScale(zoom == 100 ? 0 : zoom);
         webView.getSettings().setUseWideViewPort(true);
         webView.getSettings().setLoadWithOverviewMode(true);
     }
 
     private void showInputTools() {
         if (webView == null) return;
-        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Exportar logs"};
+        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Perfil de compatibilidade", "Tela cheia (Back para restaurar)", "Exportar logs"};
         new AlertDialog.Builder(this).setTitle("Ferramentas da TV")
             .setItems(options, (d, which) -> {
                 switch (which) {
@@ -381,7 +477,9 @@ public class MainActivity extends Activity {
                     case 2: showZoom(); break;
                     case 3: showGraphicsDoctor(); break;
                     case 4: showGraphicsSelfTest(); break;
-                    case 5: exportLogs(); break;
+                    case 5: if (currentApp != null) showAppCompatibility(currentApp); break;
+                    case 6: applyImmersiveUi(true); break;
+                    case 7: exportLogs(); break;
                 }
             }).show();
     }
@@ -431,15 +529,19 @@ public class MainActivity extends Activity {
             }
             return true;
         });
-        new AlertDialog.Builder(this).setTitle("Magic Remote · mouse virtual")
-            .setView(pad).setPositiveButton("Fechar", (d, w) -> pointerMode = false).show();
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Magic Remote · mouse virtual")
+            .setView(pad).setPositiveButton("Fechar", null).create();
+        dialog.setOnDismissListener(d -> pointerMode = false);
+        dialog.show();
     }
 
     private void sendPointer(boolean click) {
         if (webView == null) return;
         int x = Math.max(0, pointerX), y = Math.max(0, pointerY);
-        String js = "(function(){var x=" + x + ",y=" + y
-                + ",el=document.elementFromPoint(x,y);if(!el)return;"
+        String js = "(function(){var x=Math.round(" + x
+                + "*innerWidth/" + Math.max(1, webView.getWidth()) + "),y=Math.round(" + y
+                + "*innerHeight/" + Math.max(1, webView.getHeight())
+                + "),el=document.elementFromPoint(x,y);if(!el)return;"
                 + "el.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:x,clientY:y}));"
                 + (click ? "el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:x,clientY:y}));"
                     + "el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:x,clientY:y}));"
@@ -498,6 +600,8 @@ public class MainActivity extends Activity {
 
     private void exportLogs() {
         StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\n");
+        if (currentApp != null) content.append("IPK: ").append(currentApp.id)
+                .append("; perfil: ").append(appProfileName(currentApp.id)).append('\n');
         synchronized (events) { for (String event : events) content.append(event).append('\n'); }
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType("text/plain");
@@ -569,8 +673,38 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (webView != null && currentApp != null
+                && (event.getSource() & (InputDevice.SOURCE_GAMEPAD | InputDevice.SOURCE_DPAD)) != 0) {
+            String key = null;
+            int code = 0;
+            switch (event.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_UP: key = "ArrowUp"; code = 38; break;
+                case KeyEvent.KEYCODE_DPAD_DOWN: key = "ArrowDown"; code = 40; break;
+                case KeyEvent.KEYCODE_DPAD_LEFT: key = "ArrowLeft"; code = 37; break;
+                case KeyEvent.KEYCODE_DPAD_RIGHT: key = "ArrowRight"; code = 39; break;
+                case KeyEvent.KEYCODE_BUTTON_A: key = "Enter"; code = 13; break;
+                case KeyEvent.KEYCODE_BUTTON_B: key = "Escape"; code = 27; break;
+                case KeyEvent.KEYCODE_BUTTON_START: key = "Enter"; code = 13; break;
+                case KeyEvent.KEYCODE_BUTTON_SELECT: key = "Escape"; code = 27; break;
+                default: break;
+            }
+            if (key != null) {
+                String type = event.getAction() == KeyEvent.ACTION_DOWN ? "keydown" : "keyup";
+                String script = "(function(){var e=new KeyboardEvent(" + JSONObject.quote(type)
+                        + ",{key:" + JSONObject.quote(key) + ",keyCode:" + code
+                        + ",which:" + code + ",bubbles:true,cancelable:true});"
+                        + "(document.activeElement||document).dispatchEvent(e);})()";
+                webView.evaluateJavascript(script, null);
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
     @Override public void onBackPressed() {
-        if (currentApp != null) showLibrary();
+        if (immersive) applyImmersiveUi(false);
+        else if (currentApp != null) showLibrary();
         else super.onBackPressed();
     }
 

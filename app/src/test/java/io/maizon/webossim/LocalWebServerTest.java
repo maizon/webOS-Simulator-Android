@@ -9,7 +9,7 @@ public class LocalWebServerTest {
         assertEquals("text/html; charset=utf-8", LocalWebServer.mimeFor("index.html"));
         assertEquals("application/javascript; charset=utf-8", LocalWebServer.mimeFor("worker.mjs"));
         assertEquals("application/wasm", LocalWebServer.mimeFor("core.wasm"));
-        assertEquals("text/css", LocalWebServer.mimeFor("layout.css"));
+        assertEquals("text/css; charset=utf-8", LocalWebServer.mimeFor("layout.css"));
         assertEquals("image/png", LocalWebServer.mimeFor("cover.png"));
     }
 }

@@ -11,6 +11,9 @@ import org.junit.rules.TemporaryFolder;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPOutputStream;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorOutputStream;
+import org.tukaani.xz.XZOutputStream;
+import org.tukaani.xz.LZMA2Options;
 
 import static org.junit.Assert.*;
 
@@ -66,5 +69,52 @@ public class IpkInstallerTest {
             IpkInstaller.extract(new ByteArrayInputStream(sample("../../outside.txt")), dest);
             fail("Expected unsafe archive path to fail");
         } catch (IOException expected) { /* path outside sandbox */ }
+    }
+
+    /** Different Debian-ar payload compression formats must decode the same safe tree. */
+    private byte[] sampleCompressed(String codec) throws Exception {
+        ByteArrayOutputStream tarRaw = new ByteArrayOutputStream();
+        try (TarArchiveOutputStream tar = new TarArchiveOutputStream(tarRaw)) {
+            byte[] file = "<html>compat-ok</html>".getBytes(StandardCharsets.UTF_8);
+            TarArchiveEntry entry = new TarArchiveEntry("usr/palm/applications/compat/index.html");
+            entry.setSize(file.length);
+            tar.putArchiveEntry(entry);
+            tar.write(file);
+            tar.closeArchiveEntry();
+            tar.finish();
+        }
+        ByteArrayOutputStream dataOut = new ByteArrayOutputStream();
+        if ("xz".equals(codec)) {
+            try (XZOutputStream stream = new XZOutputStream(dataOut, new LZMA2Options())) {
+                stream.write(tarRaw.toByteArray());
+            }
+        } else if ("bz2".equals(codec)) {
+            try (BZip2CompressorOutputStream stream = new BZip2CompressorOutputStream(dataOut)) {
+                stream.write(tarRaw.toByteArray());
+            }
+        } else {
+            throw new IllegalArgumentException(codec);
+        }
+        ByteArrayOutputStream ipk = new ByteArrayOutputStream();
+        try (ArArchiveOutputStream ar = new ArArchiveOutputStream(ipk)) {
+            byte[] payload = dataOut.toByteArray();
+            ar.putArchiveEntry(new ArArchiveEntry("data.tar." + codec, payload.length));
+            ar.write(payload);
+            ar.closeArchiveEntry();
+            ar.finish();
+        }
+        return ipk.toByteArray();
+    }
+
+    @Test public void extractsXzCompressedIpk() throws Exception {
+        File dest = temp.newFolder("xz-install");
+        IpkInstaller.extract(new ByteArrayInputStream(sampleCompressed("xz")), dest);
+        assertTrue(new File(dest, "usr/palm/applications/compat/index.html").isFile());
+    }
+
+    @Test public void extractsBzip2CompressedIpk() throws Exception {
+        File dest = temp.newFolder("bz2-install");
+        IpkInstaller.extract(new ByteArrayInputStream(sampleCompressed("bz2")), dest);
+        assertTrue(new File(dest, "usr/palm/applications/compat/index.html").isFile());
     }
 }

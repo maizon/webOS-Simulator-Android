@@ -5,6 +5,8 @@ import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
 import org.json.JSONObject;
 
 import java.io.*;
@@ -57,12 +59,26 @@ public final class IpkInstaller {
                     try (TarArchiveInputStream tar = new TarArchiveInputStream(new KeepOpen(ar))) {
                         extractTar(tar, into);
                     }
-                } else if (name.equals("data.tar.xz") || name.equals("data.tar.zst")) {
-                    throw new IOException("Compressão IPK ainda não suportada: " + name);
+                } else if (name.equals("data.tar.xz")) {
+                    if (foundData) throw new IOException("Payload duplicado");
+                    foundData = true;
+                    try (XZCompressorInputStream xz = new XZCompressorInputStream(new KeepOpen(ar), false);
+                         TarArchiveInputStream tar = new TarArchiveInputStream(xz)) {
+                        extractTar(tar, into);
+                    }
+                } else if (name.equals("data.tar.bz2")) {
+                    if (foundData) throw new IOException("Payload duplicado");
+                    foundData = true;
+                    try (BZip2CompressorInputStream bz2 = new BZip2CompressorInputStream(new KeepOpen(ar), false);
+                         TarArchiveInputStream tar = new TarArchiveInputStream(bz2)) {
+                        extractTar(tar, into);
+                    }
+                } else if (name.equals("data.tar.zst")) {
+                    throw new IOException("IPK Zstandard não suportado nesta versão; use data.tar.gz/xz/bz2");
                 }
             }
         }
-        if (!foundData) throw new IOException("IPK sem data.tar(.gz)");
+        if (!foundData) throw new IOException("IPK sem data.tar(.gz/.xz/.bz2)");
     }
 
     private static void extractTar(TarArchiveInputStream tar, File base) throws IOException {

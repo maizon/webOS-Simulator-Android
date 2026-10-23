@@ -1,106 +1,148 @@
-/* LG webOS TV compatibility shim: Android-backed where possible; mocks are explicitly labeled. */
+/* webOS TV web-app compatibility shim.
+ * Only conservative Web APIs / Luna mock responses: no DRM/native/firmware emulation.
+ * Never fake WebGL, SharedArrayBuffer or WebAssembly capabilities.
+ */
 (function () {
   'use strict';
   if (window.__webOsAndroidShim) return;
   window.__webOsAndroidShim = true;
+  var device = {};
+  try { if (window.AndroidLuna) device = JSON.parse(AndroidLuna.getProfile()); } catch (e) {}
+  var tv = device.screen || { width: 1920, height: 1080 };
+  var info = {};
+  try { if (window.AndroidLuna) info = JSON.parse(AndroidLuna.getAppInfo()); } catch (e) {}
 
-  function profile() {
-    try { return JSON.parse(AndroidLuna.getProfile()); }
-    catch (e) { return { modelName: 'UQ8050PSB', platformVersion: 'webOS TV 22', screen: {width: 1920, height: 1080} }; }
+  function log(level, message) {
+    try { if (window.AndroidLuna) AndroidLuna.log(String(level), String(message)); } catch (e) {}
   }
-  var device = profile();
-  var report = function (level, text) {
-    try { AndroidLuna.log(String(level), String(text)); } catch (e) { /* testing outside emulator */ }
-  };
-  function callNative(uri, params, onSuccess, onFailure) {
-    var result;
-    try { result = JSON.parse(AndroidLuna.request(uri, JSON.stringify(params || {}))); }
-    catch (e) { result = {returnValue: false, errorText: String(e), errorCode: -1, __simulator: 'ERROR'}; }
+  function copy(obj) {
+    try { return JSON.parse(JSON.stringify(obj || {})); } catch (e) { return {}; }
+  }
+  function callback(fn, data) {
+    if (typeof fn !== 'function') return;
     setTimeout(function () {
-      try {
-        if (result.returnValue === false) {
-          if (typeof onFailure === 'function') onFailure(result);
-        } else if (typeof onSuccess === 'function') {
-          onSuccess(result);
-        }
-      } catch (err) { report('ERROR', 'Luna callback: ' + err); }
+      try { fn(data); } catch (e) { log('JS_CALLBACK', String(e)); }
     }, 0);
-    return result;
   }
-  function fullUri(service, method) {
-    return String(service || '').replace(/\/$/, '') + (method ? '/' + String(method).replace(/^\//, '') : '');
+  function perform(uri, params, ok, fail) {
+    var response;
+    try {
+      if (!window.AndroidLuna) throw Error('Android bridge unavailable');
+      response = JSON.parse(AndroidLuna.request(String(uri), JSON.stringify(params || {})));
+    } catch (e) {
+      response = {returnValue: false, errorCode: -1,
+        errorText: String(e), __simulator: 'ERROR'};
+    }
+    callback(response.returnValue === false ? fail : ok, response);
+    return response;
+  }
+  function joinUri(service, method) {
+    var base = String(service || '').replace(/\/+$/, '');
+    return method ? base + '/' + String(method).replace(/^\/+/, '') : base;
   }
 
   var webOS = window.webOS || {};
-  webOS.platform = webOS.platform || {
+  if (!webOS.platform) webOS.platform = {
     tv: true,
     version: device.webOSVersion || '7.0',
     modelName: device.modelName || 'UQ8050PSB'
   };
-  webOS.deviceInfo = device;
+  webOS.deviceInfo = webOS.deviceInfo || copy(device);
   webOS.service = webOS.service || {};
-  webOS.service.request = function (uri, opts) {
-    opts = opts || {};
-    var cancelled = false;
-    var joined = fullUri(uri, opts.method);
-    callNative(joined, opts.parameters || {}, function (value) {
-      if (!cancelled && typeof opts.onSuccess === 'function') opts.onSuccess(value);
-    }, function (value) {
-      if (!cancelled && typeof opts.onFailure === 'function') opts.onFailure(value);
-    });
-    if (opts.subscribe) report('MOCK', 'Subscription not live: ' + joined);
-    return {cancel: function () { cancelled = true; }};
+  if (typeof webOS.service.request !== 'function') {
+    webOS.service.request = function (service, options) {
+      var opts = options || {}, cancelled = false;
+      var uri = joinUri(service, opts.method);
+      perform(uri, opts.parameters || {}, function (value) {
+        if (!cancelled) callback(opts.onSuccess, value);
+      }, function (value) {
+        if (!cancelled) callback(opts.onFailure, value);
+      });
+      if (opts.subscribe) log('LUNA_MOCK', 'Live subscription unsupported: ' + uri);
+      return {cancel: function () { cancelled = true; }};
+    };
+  }
+  if (typeof webOS.service.Request !== 'function') {
+    webOS.service.Request = function (uri, opts) {
+      return webOS.service.request(uri, opts);
+    };
+  }
+  if (typeof webOS.fetchAppInfo !== 'function') {
+    webOS.fetchAppInfo = function (cb) {
+      callback(cb, copy(info));
+      return copy(info);
+    };
+  }
+  if (typeof webOS.getAppInfo !== 'function') {
+    webOS.getAppInfo = function () { return copy(info); };
+  }
+  if (typeof webOS.platformBack !== 'function') {
+    webOS.platformBack = function () {
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape', code: 'Escape', bubbles: true, cancelable: true
+      }));
+    };
+  }
+  if (!webOS.keyboard) webOS.keyboard = {
+    isShowing: function () { return false; },
+    show: function () { log('UNSUPPORTED', 'webOS keyboard.show'); },
+    hide: function () { log('UNSUPPORTED', 'webOS keyboard.hide'); }
   };
-  webOS.service.Request = function (uri, opts) { return webOS.service.request(uri, opts); };
-  webOS.fetchAppInfo = function (callback) {
-    var info = {};
-    try { info = JSON.parse(AndroidLuna.getAppInfo()); } catch (e) {}
-    if (typeof callback === 'function') setTimeout(function () { callback(info); }, 0);
-    return info;
-  };
-  webOS.keyboard = webOS.keyboard || { isShowing: function () { return false; } };
   window.webOS = webOS;
 
   var system = window.webOSSystem || {};
-  system.deviceInfo = JSON.stringify({
+  if (!system.deviceInfo) system.deviceInfo = JSON.stringify({
     modelName: device.modelName || 'UQ8050PSB',
     platformVersion: device.platformVersion || 'webOS TV 22',
     version: device.webOSVersion || '7.0',
-    screenWidth: device.screen && device.screen.width || 1920,
-    screenHeight: device.screen && device.screen.height || 1080,
+    screenWidth: tv.width || 1920,
+    screenHeight: tv.height || 1080,
     __simulator: 'MOCK'
   });
-  system.getDeviceInfo = function () { return JSON.parse(system.deviceInfo); };
-  system.platformBack = function () {
-    window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true}));
+  if (typeof system.getDeviceInfo !== 'function') {
+    system.getDeviceInfo = function () {
+      try { return JSON.parse(system.deviceInfo); } catch (e) { return {}; }
+    };
+  }
+  if (typeof system.platformBack !== 'function') system.platformBack = webOS.platformBack;
+  if (typeof system.close !== 'function') system.close = function () {
+    log('UNSUPPORTED', 'webOSSystem.close does not terminate Android host');
   };
-  system.close = function () { report('MOCK', 'webOSSystem.close requested'); };
-  system.launchParams = '{}';
-  system.identifier = device.profileId || 'lg-uq8050psb-webos22';
+  if (typeof system.launchParams !== 'string') system.launchParams = '{}';
+  if (!system.identifier) system.identifier = device.profileId || 'lg-uq8050psb-webos22';
   window.webOSSystem = system;
 
-  function PalmServiceBridge() { this.onservicecallback = null; this.__closed = false; }
-  PalmServiceBridge.prototype.call = function (uri, paramText) {
-    var self = this, params = {};
-    try { params = JSON.parse(paramText || '{}'); } catch (e) { report('WARN', 'Invalid Luna JSON'); }
-    callNative(uri, params, function (result) {
-      if (!self.__closed && typeof self.onservicecallback === 'function')
-        self.onservicecallback(JSON.stringify(result));
-    }, function (result) {
-      if (!self.__closed && typeof self.onservicecallback === 'function')
-        self.onservicecallback(JSON.stringify(result));
-    });
-  };
-  PalmServiceBridge.prototype.cancel = function () { this.__closed = true; };
-  window.PalmServiceBridge = window.PalmServiceBridge || PalmServiceBridge;
+  if (typeof window.PalmServiceBridge !== 'function') {
+    function PalmServiceBridge() {
+      this.onservicecallback = null;
+      this._cancelled = false;
+    }
+    PalmServiceBridge.prototype.call = function (uri, paramText) {
+      var self = this, params = {};
+      try { params = JSON.parse(paramText || '{}'); }
+      catch (e) { log('WARN', 'Invalid Luna request JSON'); }
+      var result;
+      try { result = JSON.parse(AndroidLuna.request(String(uri), JSON.stringify(params))); }
+      catch (e) { result = {returnValue:false, errorText:String(e), __simulator:'ERROR'}; }
+      callback(function () {
+        if (!self._cancelled && typeof self.onservicecallback === 'function') {
+          self.onservicecallback(JSON.stringify(result));
+        }
+      });
+    };
+    PalmServiceBridge.prototype.cancel = function () { this._cancelled = true; };
+    window.PalmServiceBridge = PalmServiceBridge;
+  }
 
-  window.addEventListener('error', function (event) {
-    report('JS_ERROR', event.message + ' at ' + (event.filename || '') + ':' + event.lineno);
+  // Reflect the actual browser, not a pretend firmware implementation.
+  window.addEventListener('error', function (e) {
+    log('JS_ERROR', (e.message || 'Error') + ' ' + (e.filename || '') + ':' + (e.lineno || 0));
   });
-  window.addEventListener('unhandledrejection', function (event) {
-    report('JS_REJECTION', String(event.reason));
+  window.addEventListener('unhandledrejection', function (e) {
+    log('JS_REJECTION', String(e.reason));
   });
-  report('INFO', 'webOS shim loaded; profile=' + device.profileId +
-    '; isolated=' + String(window.crossOriginIsolated) + '; wasm=' + (typeof WebAssembly) +
-    '; SAB=' + (typeof SharedArrayBuffer));
+  window.addEventListener('focus', function () { log('APP', 'window focus'); });
+  window.addEventListener('blur', function () { log('APP', 'window blur'); });
+  log('INFO', 'webOS API shim ready; model=' + (device.modelName || 'unknown') +
+      '; WASM=' + (typeof WebAssembly) + '; isolated=' + String(window.crossOriginIsolated));
 })();
