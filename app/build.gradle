@@ -7,15 +7,23 @@ android {
         applicationId 'io.maizon.webossim'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '1.3.0'
+        versionCode 7
+        versionName '1.4.0'
     }
     buildTypes { release { minifyEnabled false } }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    packaging { resources { excludes += ['META-INF/NOTICE', 'META-INF/LICENSE'] } }
+    // Host ELF executables named lib*.so must be extracted from the APK and
+    // remain unmodified so Android can launch them from nativeLibraryDir.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += ['**/libmaizon_loader*.so', '**/libmaizon_proot.so']
+        }
+        resources { excludes += ['META-INF/NOTICE', 'META-INF/LICENSE'] }
+    }
 }
 dependencies {
     implementation 'org.apache.commons:commons-compress:1.27.1'

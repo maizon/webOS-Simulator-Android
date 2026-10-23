@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private File appStorage;
     private JSONObject profile;
     private LunaServiceEngine lunaEngine;
+    private NativeLinuxRuntime linuxRuntime;
     private volatile MaizoLanRuntime maizoLan;
     private volatile int appGeneration = 0;
     private LocalWebServer server;
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             profile = new JSONObject(); record("ERROR", "Falha no perfil: " + e);
         }
+        linuxRuntime = new NativeLinuxRuntime(this);
         lunaEngine = new LunaServiceEngine(this, profile, appStorage, (id, params) -> {
             final int epoch = appGeneration;
             handler.post(() -> {
@@ -135,6 +137,7 @@ public class MainActivity extends Activity {
                 "\nTela TV: " + (tvDisplayEnabled(app.id) ? "16:9" : "original") +
                 "\nResolução declarada: " + tvLogicalWidth(app.id) + "×" +
                 (tvLogicalWidth(app.id) == 1280 ? "720" : "1080") +
+                "\nMotor Linux: " + NativeLinuxRuntime.support(this) +
                 "\n\n" + app.runtime.details())
             .setPositiveButton("Fechar", null)
             .setNeutralButton("Tela TV ON/OFF", (d, i) -> toggleTvDisplay(app))
@@ -143,12 +146,65 @@ public class MainActivity extends Activity {
 
     private void showNativeNotice(IpkInstaller.InstalledApp app) {
         new AlertDialog.Builder(this)
-            .setTitle("IPK nativo detectado · " + app.title)
+            .setTitle("ELF Linux experimental · " + app.title)
             .setMessage(app.runtime.details() +
-                "\n\nA instalação e a análise funcionam, mas executar código nativo Linux/webOS requer um runtime ABI Linux compatível ou QEMU com bibliotecas. Não vamos simular falsamente esse suporte nem executar binários desconhecidos.")
-            .setPositiveButton("Entendi", null)
-            .setNeutralButton("Ver logs", (d, i) -> showLogs())
+                "\n\nMotor: " + NativeLinuxRuntime.support(this) +
+                "\n\n⚠ O PRoot executa códigos Linux usando o mesmo usuário e as permissões do aplicativo Android. NÃO é uma sandbox segura para IPKs desconhecidos." +
+                "\n\nEste motor ainda não tem janela de jogos, SDL, áudio ou GPU Linux. Ele executa programas ELF de terminal quando as dependências existem. Não promete rodar RetroArch.")
+            .setPositiveButton("Executar ELF", (d, i) -> runLinuxJob(app))
+            .setNeutralButton("Testar motor", (d, i) -> runLinuxJob(null))
+            .setNegativeButton("Cancelar", null)
             .show();
+    }
+
+    private void runLinuxJob(IpkInstaller.InstalledApp app) {
+        if (linuxRuntime == null || NativeLinuxRuntime.hostAbi(this).isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Linux indisponível")
+                .setMessage(NativeLinuxRuntime.support(this))
+                .setPositiveButton("Fechar", null).show();
+            return;
+        }
+        AlertDialog progress = new AlertDialog.Builder(this)
+            .setTitle(app == null ? "Testando PRoot Linux" : "Executando " + app.title)
+            .setMessage("Preparando ambiente Linux e executando ELF...\n\n"
+                + "A primeira inicialização pode extrair bibliotecas. Executáveis gráficos "
+                + "ainda não possuem integração com a tela Android.")
+            .setCancelable(false)
+            .setNegativeButton("Interromper", (d, i) -> linuxRuntime.stop())
+            .create();
+        progress.show();
+        io.execute(() -> {
+            String output;
+            boolean okay = false;
+            try {
+                NativeLinuxRuntime.Result result = app == null ?
+                        linuxRuntime.probe() : linuxRuntime.launch(app);
+                output = result.message();
+                okay = result.ok();
+            } catch (Exception e) {
+                output = "Falha no motor ELF Linux:\n" + e.getClass().getSimpleName()
+                        + ": " + e.getMessage();
+            }
+            final String report = output;
+            final boolean success = okay;
+            record(success ? "LINUX_NATIVE" : "LINUX_ERROR",
+                    (app == null ? "Self-test: " : app.id + ": ") +
+                            report.substring(0, Math.min(report.length(), 1400)));
+            handler.post(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                progress.dismiss();
+                TextView message = text(report, 12, TEXT, false);
+                message.setTextIsSelectable(true);
+                message.setPadding(dp(12), dp(10), dp(12), dp(10));
+                ScrollView scroll = new ScrollView(this);
+                scroll.addView(message);
+                new AlertDialog.Builder(this)
+                    .setTitle(success ? "ELF Linux executou ✅" : "ELF Linux: diagnóstico")
+                    .setView(scroll)
+                    .setPositiveButton("Fechar", null)
+                    .show();
+            });
+        });
     }
 
     private int dp(float n) { return (int) (n * getResources().getDisplayMetrics().density + .5f); }
@@ -179,6 +235,7 @@ public class MainActivity extends Activity {
     private void showLibrary() {
         appGeneration++;
         stopLanRuntime();
+        if (linuxRuntime != null) linuxRuntime.stop();
         applyImmersiveUi(false);
         currentApp = null;
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -195,7 +252,7 @@ public class MainActivity extends Activity {
 
         TextView heading = text("MAIZON  •  webOS EMULATOR", 23, TEXT, true);
         body.addView(heading);
-        TextView description = text("LG webOS TV 22 · motor WebView/WASM + diagnóstico ELF. Não executa firmware proprietário.", 13, SUB, false);
+        TextView description = text("LG webOS TV 22 · WebView/WASM + execução Linux ELF experimental (PRoot).", 13, SUB, false);
         description.setPadding(0, dp(10), 0, dp(19)); body.addView(description);
         TextView install = button("＋  Instalar arquivo .IPK", this::pickIpk);
         body.addView(install, new LinearLayout.LayoutParams(-1, dp(55)));
@@ -230,7 +287,7 @@ public class MainActivity extends Activity {
             card.addView(hint);
             LinearLayout quickActions = new LinearLayout(this);
             quickActions.setGravity(Gravity.CENTER_VERTICAL);
-            TextView open = button(app.runtime.webEntry ? "▶ Abrir" : "ⓘ Nativo", () -> startApp(app));
+            TextView open = button(app.runtime.webEntry ? "▶ Abrir" : "▶ ELF", () -> startApp(app));
             quickActions.addView(open, new LinearLayout.LayoutParams(0, dp(47), 1));
             TextView info = secondaryButton("Detalhes / ABI", () -> showRuntimeDetails(app));
             LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(0, dp(47), 1);
@@ -258,7 +315,7 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
             cl.bottomMargin = dp(10); body.addView(card, cl);
         }
-        TextView note = text("Compatibilidade: WebView/WASM executável; ELF/Linux somente identificado. Luna e LAN MaizoSNES parciais. Um APK universal ARMv7 + ARM64; sem firmware LG.", 12, SUB, false);
+        TextView note = text("Linux experimental ARMv7/ARM64 (PRoot+Debian): terminal ELF quando compatível; sem SDL/GPU/áudio Linux ou QEMU. WebView/WASM e LAN MaizoSNES preservados.", 12, SUB, false);
         note.setPadding(0, dp(13), 0, 0); body.addView(note);
     }
 
@@ -287,6 +344,7 @@ public class MainActivity extends Activity {
             "Manter tela ligada: " + (awake ? "SIM" : "NÃO"),
             "Tela TV 16:9 para IPKs: " + (tvDefault ? "PADRÃO" : "MANUAL"),
             "LAN nativa MaizoSNES: " + (nativeLanEnabled() ? "ATIVA" : "DESATIVADA"),
+            "Testar execução Linux ELF (PRoot)",
             "Limpar logs de diagnóstico"
         };
         new AlertDialog.Builder(this)
@@ -307,7 +365,8 @@ public class MainActivity extends Activity {
                     if (active != null && MaizoLanRuntime.APP_ID.equals(active.id)) startApp(active);
                     else showSettings();
                 }
-                else if (i == 5) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
+                else if (i == 5) runLinuxJob(null);
+                else if (i == 6) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
             })
             .setNegativeButton("Fechar", null).show();
     }
@@ -945,6 +1004,7 @@ public class MainActivity extends Activity {
     @Override public void onDestroy() {
         appGeneration++;
         stopLanRuntime();
+        if (linuxRuntime != null) linuxRuntime.stop();
         if (webFiles != null) { webFiles.onReceiveValue(null); webFiles = null; }
         if (webView != null) { webView.destroy(); webView = null; }
         if (server != null) server.stop();

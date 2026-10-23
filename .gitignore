@@ -6,3 +6,9 @@ local.properties
 *.iml
 *.apk
 *.aab
+
+# CI-built PRoot host ELF executables and Debian guest assets
+.native-cache/
+app/src/main/jniLibs/
+app/src/main/assets/native-linux/
+app/src/main/assets/native-licenses/

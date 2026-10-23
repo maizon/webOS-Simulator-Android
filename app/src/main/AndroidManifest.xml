@@ -9,6 +9,7 @@
         android:label="Maizon webOS Emulator"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
+        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"

@@ -34,8 +34,8 @@ public final class NativeIpkInspector {
 
         public String title() {
             switch (kind) {
-                case NATIVE: return "Nativo · execução indisponível";
-                case HYBRID: return "Híbrido · recursos nativos limitados";
+                case NATIVE: return "Nativo Linux ELF · experimental";
+                case HYBRID: return "Híbrido · Linux experimental";
                 default: return "Web / HTML5 / WASM";
             }
         }
@@ -43,8 +43,8 @@ public final class NativeIpkInspector {
             String summary = kind == Kind.WEB
                     ? "Entrada HTML executável pelo Android WebView."
                     : kind == Kind.HYBRID
-                    ? "O IPK possui entrada HTML e arquivos ELF. A parte web pode funcionar, mas binários nativos e serviços próprios não são executados."
-                    : "IPK nativo detectado. O Android não executa diretamente binários Linux/webOS, QEMU/proot/ABI Linux ainda não estão integrados. Nenhum executável do pacote será iniciado.";
+                    ? "O IPK possui entrada HTML e arquivos ELF. A parte web usa WebView; ELF só executa pelo motor Linux experimental após confirmação, separadamente. Serviços Node.js e integração gráfica Linux não são executados."
+                    : "IPK nativo detectado. O Android não executa diretamente ELF Linux; o motor PRoot com Debian pode tentar executar programas Linux ARM compatíveis, após confirmação. Não há QEMU-user nem integração gráfica SDL/Wayland. Dependências webOS exclusivas podem impedir execução.";
             return summary + "\nArquitetura(s) ELF: " + architecture +
                     "\nArquivos ELF encontrados: " + elfCount +
                     (examplePath.isEmpty() ? "" : "\nExemplo: " + examplePath) +
@@ -88,7 +88,8 @@ public final class NativeIpkInspector {
                     if (arch != null) {
                         count++;
                         architectures.add(arch);
-                        if (example.isEmpty()) {
+                        if (example.isEmpty() || (example.toLowerCase(Locale.ROOT).endsWith(".so") &&
+                                !file.getName().toLowerCase(Locale.ROOT).endsWith(".so"))) {
                             String full = file.getPath();
                             String base = root.getPath() + File.separator;
                             example = full.startsWith(base) ? full.substring(base.length()) : file.getName();

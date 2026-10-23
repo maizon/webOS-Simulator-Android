@@ -1,10 +1,22 @@
-# Maizon webOS Emulator — 1.3.0 (compatibilidade experimental)
+# Maizon webOS Emulator — 1.4.0 (Linux ELF ARM32/ARM64 experimental)
 
-Projeto independente da comunidade **Maizon**: um único APK Android que instala aplicativos IPK, executa apps HTML5/JavaScript/WebAssembly compatíveis e **identifica** arquivos nativos ELF sem executá-los. Perfil de referência: LG UQ8050PSB / webOS TV 22.
+Projeto independente da comunidade **Maizon**: um único APK universal Android ARM32/ARM64 que instala IPKs, executa apps HTML5/JavaScript/WebAssembly e inclui um **motor Linux ELF experimental** com PRoot e Debian para executar programas nativos de terminal quando a ABI e dependências forem compatíveis. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
-> **AVISO:** não é firmware LG, não executa serviços nativos webOS, bibliotecas proprietárias, DRM nem binários nativos de IPKs. Usa Android System WebView. Compatibilidade de 99,9% não foi demonstrada e não pode ser garantida para todos os IPKs.
+> **AVISO:** não é firmware LG. O PRoot executa Linux ELF experimental **sem janela gráfica nativa, GPU, áudio, SDL ou QEMU-user**; RetroArch e outros jogos Linux gráficos **não estão comprovados nem disponíveis em gameplay**. O código ELF roda sob o mesmo UID e permissões do nosso app; execute apenas IPKs confiáveis. WebView continua intacto. Nenhuma porcentagem de compatibilidade é garantida.
 
-O IPK instalado permanece original: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+O conteúdo original dos IPKs é preservado: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+
+## Novidades 1.4.0 — motor Linux ARMv7 + ARM64 no mesmo APK
+
+- **PRoot compilado para duas ABIs Android** com Android NDK: \`armeabi-v7a\` e \`arm64-v8a\`. Os executáveis host e seus loaders são incluídos em \`lib/\` dentro de **um único APK**.
+- **Duas sysroots Debian GNU/Linux oficiais** (armhf e arm64), pequenas, distribuídas dentro do APK com libc6, BusyBox estático, bibliotecas C/C++ básicas e um executável Linux ELF de teste. Nenhuma instalação de Termux e nenhuma conexão adicional após instalar o APK.
+- **Execução Linux ELF experimental de terminal**: na biblioteca toque em **▶ ELF**, leia o aviso de acesso aos dados do aplicativo, escolha **Testar motor** (programa controlado) ou **Executar ELF** (programa importado). Saída e código de retorno aparecem em diagnóstico.
+- **Preservação do conteúdo nativo dos IPKs** fora da pasta \`appinfo.json\`, incluindo arquivos \`usr/lib\`, dentro de um sandbox de arquivos próprio. PRoot os apresenta à aplicação, mas NÃO oferece isolamento de segurança contra código malicioso.
+- **Configurações → Testar execução Linux ELF (PRoot)** valida o motor independente de qualquer IPK de terceiros.
+- **CI testa** compilação Android ARM32/ARM64, criação dos dois ambientes Linux, executa os dois executáveis hóspedes via QEMU no runner, JUnit, testes JavaScript e inspeção do APK final.
+- **Ainda não incluído:** QEMU-user Android para executar arquitetura cruzada; Wayland/X11, SDL, GPU, áudio Linux, compatibilidade completa com webOS nativo ou RetroArch. Não há promessa de jogos Linux gráficos "lisos" neste estágio.
+
+📄 [Arquitetura, licenças, desempenho e validação em aparelho](docs/LINUX_NATIVE_RUNTIME.md).
 
 ## Novidades — versão 1.3.0 (um APK universal)
 
@@ -16,7 +28,7 @@ O IPK instalado permanece original: correções de HTTP/JavaScript/viewport são
 - **APK universal de aplicação Java**, sem filtros ABI e sem bibliotecas JNI nativas: instalável em dispositivos Android ARMv7/ARM64 compatíveis com minSdk 26. A execução de ELF Linux ainda não existe.
 - **Testes novos** de cabeçalhos ELF, classificação IPK, geometria 16:9, resoluções 720p/1080p e comportamento do script de viewport.
 
-**O RetroArch webOS nativo ainda NÃO é executado nesta versão.** Uma camada Linux ABI/QEMU com bibliotecas, framebuffer/áudio/gamepad e isolamento de processo depende de desenvolvimento e validação adicional. O APK não contém QEMU, rootfs Linux nem firmware LG, e o modo híbrido não executa serviços Node.js genéricos.
+**O RetroArch webOS nativo ainda NÃO possui interface/áudio/gameplay executável.** Uma camada gráfica Linux com SDL e QEMU-user com bibliotecas, framebuffer/áudio/gamepad e isolamento de processo depende de desenvolvimento e validação adicional. O APK não contém QEMU, rootfs Linux nem firmware LG, e o modo híbrido não executa serviços Node.js genéricos.
 
 📄 [Diagnóstico/arquitetura e testes](docs/EMULATOR_COMPATIBILITY.md) · [Prompt técnico completo para evolução autônoma](PROMPT_EMULADOR_WEBOS_UNIVERSAL.md)
 
@@ -53,9 +65,9 @@ Na tela do IPK: **⋮ → Teste de APIs Luna webOS 22**. Resultados indicam `AND
 
 Abra **Actions → Android APK → última execução verde → Artifacts → webos-simulator-android-apks → app-debug.apk**.
 
-- app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. É um APK Java universal, sem bibliotecas JNI do projeto, para Android ARMv7 e ARM64 compatíveis com minSdk 26.
+- app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. **Contém PRoot nativo e sysroots Linux nas duas ABIs** ARMv7/ARM64 e Java/WebView; Android minSdk 26. O APK não é universal x86 neste estágio.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action publica o APK debug instalável como pré-release **v1.3.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action publica o APK debug instalável como pré-release **v1.4.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades
@@ -71,7 +83,8 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 | Diagnóstico | Erros HTTP/console/JS, viewport, capacidades WASM/Workers, contexto WebGL perdido, rAF medido sob demanda (não FPS real do jogo) |
 | Controles | Remoto LG sintético, touchpad, teclas de gamepad, zoom individual e modo imersivo (Back restaura barras) |
 | Estabilidade | Log de crash do renderer, tratamento de permissões, arquivos locais do WebView bloqueados e seletor SAF para ROMs |
-| CI | SDK 35, JDK 17, JUnit, validação JS, APK debug e unsigned release |
+| Linux ELF | PRoot Android ARMv7/ARM64, Debian armhf/arm64, executor de terminal experimental por confirmação, logs e interrupção; sem GUI Linux |
+| CI | SDK 35, NDK 29, GNU cross compilers, QEMU-runner, JDK 17, JUnit/Node, APK universal debug + unsigned release |
 
 ### Perfis de compatibilidade
 
@@ -103,13 +116,16 @@ Um CI verde **não comprova** que essas telas pretas estejam resolvidas. É prec
 - CSP, Service Workers, navegação especial, media/protocolo proprietários e apps com dependência forte da GPU de TV podem continuar falhando.
 - Serviços Luna não suportados retornam erro explícito. Não falsificamos suporte a WebGL, SharedArrayBuffer, DRM ou hardware.
 - O WebView não recebe permissões de microfone/câmera automaticamente. Aplicativos de terceiros podem fazer requisições web e executar scripts; **instale somente IPKs confiáveis**.
-- data.tar.zst, **execução de código nativo webOS** (análise ELF apenas), DRM/EME específicos da LG, serviços proprietários e aplicativos protegidos de streaming **não são suportados**.
+- data.tar.zst, integração gráfica/áudio de **código nativo Linux/webOS**, QEMU-user, DRM/EME específicos da LG, serviços proprietários e aplicativos protegidos de streaming **não são suportados**. Execução de ELF terminal é experimental.
 - Apps podem importar arquivos/ROMs pelo seletor Android SAF quando possuem um elemento de seleção web. Não distribuímos jogos nem ROMs.
 
 ## Desenvolvimento
 
 Requer JDK 17, Gradle 8.7, Android SDK 35 e minSdk 26.
 
+    # Instalar NDK 29 + compiladores aarch64/arm-linux-gnueabihf + qemu-user no host
+    bash tools/build-native-runtime.sh
+    bash tools/build-linux-sysroots.sh
     gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
     node --check app/src/main/assets/webos-shim.js
     node --check app/src/main/assets/graphics-doctor.js
@@ -120,6 +136,6 @@ Workflow: .github/workflows/android.yml.
 
 **Comprovado pelo CI:** código compila, testes JUnit/JS passam, APKs são produzidos.
 
-**Não comprovado sem hardware/IPK real:** RetroArch (execução nativa indisponível), Fruit Ninja, MaizoSNES nesta nova versão, ROMs, LAN/multiplayer, áudio contínuo e apresentação correta de frames.
+**Não comprovado sem hardware/IPK real:** PRoot Linux em Android físico, RetroArch nativo (GUI/áudio não integrados), Fruit Ninja, MaizoSNES nesta nova versão, ROMs, LAN/multiplayer, áudio contínuo e apresentação correta de frames.
 
 Projeto independente Maizon; sem vínculo com LG. Não inclui firmware LG, DRM, ROMs ou bibliotecas proprietárias.
