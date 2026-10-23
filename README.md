@@ -84,7 +84,7 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 | Controles | Remoto LG sintético, touchpad, teclas de gamepad, zoom individual e modo imersivo (Back restaura barras) |
 | Estabilidade | Log de crash do renderer, tratamento de permissões, arquivos locais do WebView bloqueados e seletor SAF para ROMs |
 | Linux ELF | PRoot Android ARMv7/ARM64, Debian armhf/arm64, executor de terminal experimental por confirmação, logs e interrupção; sem GUI Linux |
-| CI | SDK 35, NDK 29, GNU cross compilers, QEMU-runner, JDK 17, JUnit/Node, APK universal debug + unsigned release |
+| CI | SDK 35, NDK 29, clang bare Linux ELF, QEMU estático no runner, JDK 17, JUnit/Node, APK universal debug + unsigned release |
 
 ### Perfis de compatibilidade
 
@@ -123,7 +123,7 @@ Um CI verde **não comprova** que essas telas pretas estejam resolvidas. É prec
 
 Requer JDK 17, Gradle 8.7, Android SDK 35 e minSdk 26.
 
-    # Instalar NDK 29 + compiladores aarch64/arm-linux-gnueabihf + qemu-user no host
+    # Instalar Android NDK 29; CI baixa QEMU-user-static Linux x86_64 para testes
     bash tools/build-native-runtime.sh
     bash tools/build-linux-sysroots.sh
     gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease

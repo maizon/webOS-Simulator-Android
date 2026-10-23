@@ -4,7 +4,7 @@
 
 Esta versão **inclui um motor externo de execução Linux em ARMv7 e ARM64**, baseado em PRoot (GPL-2.0), construído com Android NDK e empacotado **duas vezes no mesmo APK**, nas ABIs `armeabi-v7a` e `arm64-v8a`.
 
-Também inclui duas sysroots pequenas de **Debian GNU/Linux armhf e arm64**, extraídas do APK no primeiro uso e acompanhadas por BusyBox, libc6, libgcc-s1, libstdc++6 e zlib1g. Os pacotes Debian são baixados no CI e verificados contra checksums do índice de pacotes Debian. O executável Linux de teste `/bin/maizon-probe` é compilado separadamente para cada arquitetura e executado sob QEMU no CI.
+Também inclui duas sysroots pequenas de **Debian GNU/Linux armhf e arm64**, extraídas do APK no primeiro uso e acompanhadas por BusyBox, libc6, libgcc-s1, libstdc++6 e zlib1g. Os pacotes Debian são baixados no CI e verificados contra checksums do índice de pacotes Debian. O executável Linux de teste `/bin/maizon-probe` é compilado via Android NDK clang com syscalls Linux e sem libc, para cada arquitetura, e executado sob QEMU-user-static do Debian (somente no CI).
 
 **Não é uma VM de webOS.** PRoot é um tradutor de caminhos/chamadas de sistema e executor sem root. Não executa shell do Android nem usa Termux. **Não é uma sandbox segura**: código Linux do IPK executa sob o UID do nosso aplicativo, pode acessar dados desse UID e pode utilizar rede sob as permissões concedidas. Executar somente IPKs que você conhece.
 

@@ -26,11 +26,13 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.14206865"
-      - name: Install guest Linux cross compilers and QEMU smoke-test tools
+      - name: Check tools for reproducible cross-builds
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf qemu-user xz-utils
+          command -v python3
+          command -v dpkg-deb
+          command -v tar
+          command -v xz
+          echo 'NDK clang compiles Linux ELF probes; Debian QEMU-user-static downloaded with checksum verification'
       - name: Build native PRoot ARMv7/ARM64 and bundled Debian Linux sysroots
         run: |
           bash tools/build-native-runtime.sh
