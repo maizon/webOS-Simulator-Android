@@ -135,7 +135,7 @@ public final class NativeLinuxRuntime {
     }
 
     private void extractOfficialSysroot(File destination, String abi) throws IOException {
-        String asset = "native-linux/" + abi + "-rootfs.tar.gz";
+        String asset = "native-linux/" + abi + "-rootfs.bundle";
         List<Link> links = new ArrayList<>();
         long bytes = 0;
         int entries = 0;

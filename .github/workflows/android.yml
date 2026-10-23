@@ -40,7 +40,7 @@ jobs:
           for abi in armeabi-v7a arm64-v8a; do
             test -s "app/src/main/jniLibs/$abi/libmaizon_proot.so"
             test -s "app/src/main/jniLibs/$abi/libmaizon_loader.so"
-            test -s "app/src/main/assets/native-linux/$abi-rootfs.tar.gz"
+            test -s "app/src/main/assets/native-linux/$abi-rootfs.bundle"
           done
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -64,14 +64,10 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/compat-viewport.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/webos-shim.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/uq8050psb.json'
-          echo 'DEBUG: APK rootfs / native asset inventory:'
-          unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -E 'rootfs|native|PROOT|maizon' || true
-          echo 'DEBUG: merged Android assets inventory:'
-          find app/build/intermediates -name '*rootfs*' -o -name 'PROOT_GPL2.txt' | head -40
           for abi in armeabi-v7a arm64-v8a; do
             unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "lib/$abi/libmaizon_proot.so"
             unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "lib/$abi/libmaizon_loader.so"
-            unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "assets/native-linux/$abi-rootfs.tar.gz"
+            unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "assets/native-linux/$abi-rootfs.bundle"
           done
           unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "assets/native-licenses/PROOT_GPL2.txt"
           unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx 'classes.dex'

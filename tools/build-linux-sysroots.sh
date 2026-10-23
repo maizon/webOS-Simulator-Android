@@ -31,7 +31,7 @@ for pair in "arm64 arm64-v8a aarch64-linux-android26-clang aarch64" \
     | grep -F 'MAIZON_LINUX_GUEST_OK'
   "$CACHE/qemu/usr/bin/qemu-$guest-static" -L "$stage" "$stage/bin/busybox" echo "$debarch-rootfs-smoke-ok" \
     | grep -F "$debarch-rootfs-smoke-ok"
-  tar -czf "$OUT/$abi-rootfs.tar.gz" -C "$stage" .
-  printf 'Built %s: ' "$OUT/$abi-rootfs.tar.gz"
-  du -h "$OUT/$abi-rootfs.tar.gz"
+  tar -czf "$OUT/$abi-rootfs.bundle" -C "$stage" .
+  printf 'Built %s: ' "$OUT/$abi-rootfs.bundle"
+  du -h "$OUT/$abi-rootfs.bundle"
 done
