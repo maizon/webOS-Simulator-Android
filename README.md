@@ -1,10 +1,29 @@
-# webOS IPK Simulator Android — 1.1.0 (experimental)
+# webOS IPK Simulator Android — 1.2.0 (experimental)
 
 Projeto independente da comunidade **Maizon** para executar aplicativos web empacotados como IPK de webOS no Android. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
 > **AVISO:** não é firmware LG, não executa serviços nativos webOS, bibliotecas proprietárias, DRM nem binários nativos de IPKs. Usa Android System WebView. Compatibilidade de 99,9% não foi demonstrada e não pode ser garantida para todos os IPKs.
 
 O IPK instalado permanece original: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+
+## Controle MaizoSNES Android como gamepad LAN — 1.2.0
+
+**Agora o próprio Android executa os sockets nativos para o serviço `com.maizon.maizosnes.webos.bridge`** quando o IPK `com.maizon.maizosnes.webos` solicita `luna://com.maizon.maizosnes.webos.bridge/open`. Em vez de alegar que executa o serviço Node.js de uma TV LG, o simulador implementa o mesmo protocolo de rede em **Java Android**:
+
+- **55437/UDP**: gamepad MaizoSNES Android MZRC/1, HELLO → oferta ao anfitrião → autorização explícita → ACCEPT com token/slot P2–P4 → INPUT de botões, PING/PONG e timeout de liberação automática.
+- **55436/UDP**: anúncios LAN MZSCAN2/MZSCAN3, MZOFFER2/MZOFFER3, descoberta automática por broadcast.
+- **55435/TCP**: transporte binário MZNP para Android ↔ IPK webOS, com o handshake normal dos aplicativos. **Não promete GekkoNet UDP cruzado**: os próprios clientes negociam o fallback.
+- **WebSocket localhost**: interface `ws://127.0.0.1:porta/bridge` compatível com `webos/native-bridge.js`, autenticação por segredo de 192 bits, filtro de Origin do IPK aberto, quadros limitados e servidor restrito a localhost.
+- **Compatibilidade do IPK sem alteração**: ao abrir *este IPK*, o simulador adota o User-Agent LG para que a verificação conservadora de `navigator.userAgent` no `native-bridge.js` não bloqueie capacidades UDP/TCP realmente disponíveis no Android. Outros IPKs mantêm seus perfis originais.
+- **Ciclo de vida**: LAN desativada ao fechar/trocar IPK, sair do simulador ou ao desconectar o WebSocket; nenhuma porta LAN é aberta antes da autenticação e do comando do jogo.
+- **Segurança**: somente endereços IPv4 privados/loopback, até três controles, confirmação do host para cada novo controle, limites de payload, sequências monotônicas, tokens, timeouts e bloqueio de mensagens sem autenticação. Não encaminha ROMs sem o protocolo MZNP original.
+- **Fallbacks intactos**: multiplayer Railway WSS, WebRTC/GekkoNet, biblioteca, áudio, WebGL, save state e ROMs continuam sob controle do próprio MaizoSNES.
+
+O IPK que já está instalado pode ser reutilizado; **não precisa reinstalar** se ele já possui `webos/native-bridge.js`. Para usar, abra uma ROM no MaizoSNES IPK; na interface do IPK habilite LAN/controle Android, que normalmente vem ativado. O celular com o APK MaizoSNES Android deve estar na mesma rede e solicitar controle LAN. O IPK solicita aprovação para P2, P3 ou P4. Use **⋮ → Diagnóstico LAN UDP/TCP (MaizoSNES)** para conferir se a porta abriu. Em **Configurações → LAN nativa MaizoSNES** você pode desabilitar totalmente o adaptador sem alterar o modo WSS.
+
+**Escopo:** não há interpretador Node.js genérico, nem execução de `require('dgram')`/`require('net')` de outros serviços Node.js empacotados. O serviço específico do MaizoSNES é reproduzido por um adaptador Java interoperável. Sockets no dispositivo físico e descobertas na rede Wi-Fi ainda exigem teste com dois aparelhos.
+
+Veja [documentação do protocolo LAN](docs/MAIZO_LAN_ADAPTER.md) e [matriz Luna](docs/LUNA_API_MATRIX.md).
 
 ## Luna / webOS TV 22 — v1.1.0
 
@@ -14,7 +33,7 @@ Na tela do IPK: **⋮ → Teste de APIs Luna webOS 22**. Resultados indicam `AND
 
 [**Matriz detalhada das APIs e limitações**](docs/LUNA_API_MATRIX.md).
 
-**Release v1.1.0**: APK debug instalável publicado separadamente da versão 1.1.0, para preservar uma cópia estável. O MaizoSNES webOS e o MaizoSNES Android originais não foram modificados neste repositório.
+**Release v1.1.0**: APK debug instalável publicado separadamente da versão 1.2.0, para preservar uma cópia estável. O MaizoSNES webOS e o MaizoSNES Android originais não foram modificados neste repositório.
 
 ## Baixar e instalar APK
 
@@ -22,7 +41,7 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 
 - app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. É um APK Java universal, sem bibliotecas JNI do projeto, para Android ARMv7 e ARM64 compatíveis com minSdk 26.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action tenta publicar o APK debug instalável como pré-release **v1.1.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action tenta publicar o APK debug instalável como pré-release **v1.2.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades

@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
     private File appStorage;
     private JSONObject profile;
     private LunaServiceEngine lunaEngine;
+    private volatile MaizoLanRuntime maizoLan;
     private volatile int appGeneration = 0;
     private LocalWebServer server;
     private int localPort;
@@ -133,6 +134,7 @@ public class MainActivity extends Activity {
     }
     private void showLibrary() {
         appGeneration++;
+        stopLanRuntime();
         applyImmersiveUi(false);
         currentApp = null;
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -201,7 +203,7 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
             cl.bottomMargin = dp(10); body.addView(card, cl);
         }
-        TextView note = text("STATUS: APIs Luna de sistema usam MOCKS; WebGL/WASM/rede dependem do Android WebView. DRM e .so nativos não são executados.", 12, SUB, false);
+        TextView note = text("STATUS: Luna de sistema usa APIs Android/mocks. MaizoSNES LAN: adaptador Java UDP/TCP (sem Node.js). DRM, binários .so e Node.js genérico não executados.", 12, SUB, false);
         note.setPadding(0, dp(13), 0, 0); body.addView(note);
     }
 
@@ -227,6 +229,7 @@ public class MainActivity extends Activity {
             "Perfil padrão: " + CompatibilityProfiles.title(appProfileName(null)),
             "Forçar paisagem: " + (landscape ? "SIM" : "NÃO"),
             "Manter tela ligada: " + (awake ? "SIM" : "NÃO"),
+            "LAN nativa MaizoSNES: " + (nativeLanEnabled() ? "ATIVA" : "DESATIVADA"),
             "Limpar logs de diagnóstico"
         };
         new AlertDialog.Builder(this)
@@ -235,7 +238,15 @@ public class MainActivity extends Activity {
                 if (i == 0) selectDefaultProfile();
                 else if (i == 1) { getPreferences(0).edit().putBoolean("landscape", !landscape).apply(); showSettings(); }
                 else if (i == 2) { getPreferences(0).edit().putBoolean("awake", !awake).apply(); showSettings(); }
-                else if (i == 3) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
+                else if (i == 3) {
+                    boolean enabled = !nativeLanEnabled();
+                    getPreferences(0).edit().putBoolean("maizo_lan_enabled", enabled).apply();
+                    if (!enabled) stopLanRuntime();
+                    IpkInstaller.InstalledApp active = currentApp;
+                    if (active != null && MaizoLanRuntime.APP_ID.equals(active.id)) startApp(active);
+                    else showSettings();
+                }
+                else if (i == 4) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
             })
             .setNegativeButton("Fechar", null).show();
     }
@@ -305,9 +316,37 @@ public class MainActivity extends Activity {
             .setView(scroll).setPositiveButton("Fechar", null).show();
     }
 
+    private boolean nativeLanEnabled() {
+        return getPreferences(0).getBoolean("maizo_lan_enabled", true);
+    }
+
+    private synchronized void stopLanRuntime() {
+        MaizoLanRuntime runtime = maizoLan;
+        maizoLan = null;
+        if (runtime != null) runtime.close();
+    }
+
+    private JSONObject dispatchMaizoLuna(String appId, String uri, JSONObject args) {
+        if (!MaizoLanRuntime.APP_ID.equals(appId) ||
+                !uri.startsWith("luna://com.maizon.maizosnes.webos.bridge/"))
+            return null;
+        if (!nativeLanEnabled()) return LunaServiceEngine.error(-1, "MaizoSNES LAN disabled in simulator settings");
+        String method = uri.substring("luna://com.maizon.maizosnes.webos.bridge/".length());
+        if (!"open".equals(method) && !"health".equals(method))
+            return LunaServiceEngine.error(-1, "Unsupported MaizoSNES companion method");
+        synchronized (this) {
+            if (maizoLan == null) maizoLan = new MaizoLanRuntime(this, localPort, this::record);
+            if ("health".equals(method)) return maizoLan.health();
+            if (!args.optBoolean("subscribe", false))
+                return LunaServiceEngine.error(-1, "A live subscription is required to open LAN sockets");
+            return maizoLan.open();
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void startApp(IpkInstaller.InstalledApp app) {
         appGeneration++;
+        stopLanRuntime();
         applyImmersiveUi(false);
         if (webView != null) {
             webView.stopLoading();
@@ -351,8 +390,16 @@ public class MainActivity extends Activity {
         ws.setUseWideViewPort(true);
         ws.setLoadWithOverviewMode(true);
         ws.setOffscreenPreRaster(false);
-        if (CompatibilityProfiles.fakeUA(appProfileName(app.id)))
+        // MaizoSNES webOS checks navigator.userAgent for Android and disables its
+        // native Luna bridge when it detects the *browser*, even if real UDP/TCP
+        // transport is available. Use webOS identity for this one compatible IPK.
+        // Other IPKs retain their chosen original User-Agent profile.
+        if (CompatibilityProfiles.fakeUA(appProfileName(app.id)) ||
+                (nativeLanEnabled() && MaizoLanRuntime.APP_ID.equals(app.id))) {
             ws.setUserAgentString(profile.optString("userAgent", ws.getUserAgentString()));
+            if (MaizoLanRuntime.APP_ID.equals(app.id))
+                record("LAN", "MaizoSNES: webOS UA enabled to expose authentic Android UDP/TCP bridge");
+        }
         webView.setBackgroundColor(Color.BLACK);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
@@ -481,7 +528,7 @@ public class MainActivity extends Activity {
 
     private void showInputTools() {
         if (webView == null) return;
-        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Perfil de compatibilidade", "Teste de APIs Luna webOS 22", "Tela cheia (Back para restaurar)", "Exportar logs"};
+        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Perfil de compatibilidade", "Teste de APIs Luna webOS 22", "Diagnóstico LAN UDP/TCP (MaizoSNES)", "Tela cheia (Back para restaurar)", "Exportar logs"};
         new AlertDialog.Builder(this).setTitle("Ferramentas da TV")
             .setItems(options, (d, which) -> {
                 switch (which) {
@@ -492,8 +539,9 @@ public class MainActivity extends Activity {
                     case 4: showGraphicsSelfTest(); break;
                     case 5: if (currentApp != null) showAppCompatibility(currentApp); break;
                     case 6: showLunaSelfTest(); break;
-                    case 7: applyImmersiveUi(true); break;
-                    case 8: exportLogs(); break;
+                    case 7: showMaizoLanStatus(); break;
+                    case 8: applyImmersiveUi(true); break;
+                    case 9: exportLogs(); break;
                 }
             }).show();
     }
@@ -644,6 +692,35 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void showMaizoLanStatus() {
+        IpkInstaller.InstalledApp app = currentApp;
+        if (app == null || !MaizoLanRuntime.APP_ID.equals(app.id)) {
+            new AlertDialog.Builder(this).setTitle("LAN MZNP / MZRC")
+                .setMessage("O adaptador nativo é específico para o IPK MaizoSNES. Outros apps precisam de um serviço compatível.")
+                .setPositiveButton("Fechar", null).show();
+            return;
+        }
+        MaizoLanRuntime runtime = maizoLan;
+        JSONObject info = runtime == null ? null : runtime.health();
+        String status = "Adaptador Java: " + (nativeLanEnabled() ? "HABILITADO" : "DESABILITADO") +
+                "\nServiço iniciado: " + (runtime != null) +
+                "\nWebSocket localhost autenticado: " + (info == null ? "aguardando ROM/jogo" :
+                    info.optBoolean("active") ? "servidor ativo" : "desligado") +
+                "\nPortas: 55435/TCP MZNP; 55436/UDP descoberta; 55437/UDP MZRC." +
+                "\nTCP: " + (info != null && info.optJSONObject("capabilities") != null &&
+                    info.optJSONObject("capabilities").optBoolean("tcp")) +
+                "\nUDP controle: " + (info != null && info.optJSONObject("capabilities") != null &&
+                    info.optJSONObject("capabilities").optBoolean("udp")) +
+                "\nUDP descoberta: " + (info != null && info.optJSONObject("capabilities") != null &&
+                    info.optJSONObject("capabilities").optBoolean("discovery")) +
+                "\nOs sockets são abertos pelo IPK quando uma ROM local inicia e o serviço se autentica." +
+                "\nNode.js genérico não está disponível; o protocolo do MaizoSNES é implementado em Java." +
+                "\nIPK original, WSS e multiplayer online preservados.";
+        new AlertDialog.Builder(this).setTitle("MaizoSNES LAN · diagnóstico real")
+            .setMessage(status).setPositiveButton("Fechar", null)
+            .setNeutralButton("Logs", (d, which) -> showLogs()).show();
+    }
+
     private void exportLogs() {
         StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\n");
         if (currentApp != null) content.append("IPK: ").append(currentApp.id)
@@ -685,7 +762,8 @@ public class MainActivity extends Activity {
             JSONObject data;
             try { data = new JSONObject(params); }
             catch (Exception e) { return LunaServiceEngine.error(-1, "Invalid Luna JSON").toString(); }
-            JSONObject response = lunaEngine.request(appId, uri, data);
+            JSONObject response = dispatchMaizoLuna(appId, uri, data);
+            if (response == null) response = lunaEngine.request(appId, uri, data);
             String simulator = response.optString("__simulator", "UNKNOWN");
             String level = response.optBoolean("returnValue", false) ? "LUNA_" + simulator : "LUNA_UNSUPPORTED";
             record(level, uri + " " + (response.optBoolean("returnValue") ? "OK" :
@@ -767,6 +845,8 @@ public class MainActivity extends Activity {
     }
 
     @Override public void onDestroy() {
+        appGeneration++;
+        stopLanRuntime();
         if (webFiles != null) { webFiles.onReceiveValue(null); webFiles = null; }
         if (webView != null) { webView.destroy(); webView = null; }
         if (server != null) server.stop();
