@@ -24,6 +24,7 @@ public final class LocalWebServer {
     private final boolean isolation;
     private final boolean shimEnabled;
     private final boolean tvViewport;
+    private final int logicalWidth;
     private ServerSocket server;
     private Thread acceptThread;
     private volatile boolean running;
@@ -35,11 +36,17 @@ public final class LocalWebServer {
 
     public LocalWebServer(Context context, File appsDir, boolean isolation,
                           boolean shimEnabled, boolean tvViewport) {
+        this(context, appsDir, isolation, shimEnabled, tvViewport, 1920);
+    }
+
+    public LocalWebServer(Context context, File appsDir, boolean isolation,
+                          boolean shimEnabled, boolean tvViewport, int logicalWidth) {
         this.context = context.getApplicationContext();
         this.appsDir = appsDir;
         this.isolation = isolation;
         this.shimEnabled = shimEnabled;
         this.tvViewport = tvViewport;
+        this.logicalWidth = logicalWidth == 1280 ? 1280 : 1920;
     }
 
     public int start() throws IOException { return start(null); }
@@ -182,7 +189,7 @@ public final class LocalWebServer {
             if (mime.startsWith("text/html") && (range == null || range.isEmpty())) {
                 try (InputStream stream = new FileInputStream(file)) {
                     String html = new String(readLimited(stream, 8 * 1024 * 1024), StandardCharsets.UTF_8);
-                    html = HttpSupport.inject(html, shimEnabled, true, tvViewport);
+                    html = HttpSupport.inject(html, shimEnabled, true, tvViewport, logicalWidth);
                     respond(output, 200, mime, html.getBytes(StandardCharsets.UTF_8), head);
                 }
             } else {

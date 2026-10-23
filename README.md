@@ -1,10 +1,24 @@
-# webOS IPK Simulator Android — 1.2.0 (experimental)
+# Maizon webOS Emulator — 1.3.0 (compatibilidade experimental)
 
-Projeto independente da comunidade **Maizon** para executar aplicativos web empacotados como IPK de webOS no Android. Perfil de referência: LG UQ8050PSB / webOS TV 22.
+Projeto independente da comunidade **Maizon**: um único APK Android que instala aplicativos IPK, executa apps HTML5/JavaScript/WebAssembly compatíveis e **identifica** arquivos nativos ELF sem executá-los. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
 > **AVISO:** não é firmware LG, não executa serviços nativos webOS, bibliotecas proprietárias, DRM nem binários nativos de IPKs. Usa Android System WebView. Compatibilidade de 99,9% não foi demonstrada e não pode ser garantida para todos os IPKs.
 
 O IPK instalado permanece original: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+
+## Novidades — versão 1.3.0 (um APK universal)
+
+**Importe um IPK pela biblioteca e toque para abrir, quando for um app web compatível.** O motor web é o Android WebView. Esta versão aprimora a aparência dos aplicativos de TV e a identificação de arquivos ELF Linux:
+
+- **Tela TV centralizada 16:9**, sem esticar a imagem e sem desalinhar toques: `TvAspectLayout` com letterboxing de hardware. Resolução lógica definida pelo `appinfo.json` (1920×1080 ou 1280×720). O viewport não força mais `minWidth=1920px` ou `initial-scale=1`, que causavam páginas cortadas em celulares.
+- **Botão TV** durante execução e opção por aplicativo no menu **⚙ Perfil**. O modo TV fica habilitado por padrão para novos apps, **exceto o MaizoSNES webOS**, preservando seu comportamento WebGL já validado.
+- **Reconhecimento automático de aplicativos web, híbridos e nativos**: inspeciona a assinatura ELF real e mostra arquitetura ARM32/ARM64/x86 etc. Aplicativos puramente nativos podem ser importados para análise, mas, ao abrir, apresentam **diagnóstico** em vez de tela preta.
+- **APK universal de aplicação Java**, sem filtros ABI e sem bibliotecas JNI nativas: instalável em dispositivos Android ARMv7/ARM64 compatíveis com minSdk 26. A execução de ELF Linux ainda não existe.
+- **Testes novos** de cabeçalhos ELF, classificação IPK, geometria 16:9, resoluções 720p/1080p e comportamento do script de viewport.
+
+**O RetroArch webOS nativo ainda NÃO é executado nesta versão.** Uma camada Linux ABI/QEMU com bibliotecas, framebuffer/áudio/gamepad e isolamento de processo depende de desenvolvimento e validação adicional. O APK não contém QEMU, rootfs Linux nem firmware LG, e o modo híbrido não executa serviços Node.js genéricos.
+
+📄 [Diagnóstico/arquitetura e testes](docs/EMULATOR_COMPATIBILITY.md) · [Prompt técnico completo para evolução autônoma](PROMPT_EMULADOR_WEBOS_UNIVERSAL.md)
 
 ## Controle MaizoSNES Android como gamepad LAN — 1.2.0
 
@@ -41,16 +55,16 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 
 - app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. É um APK Java universal, sem bibliotecas JNI do projeto, para Android ARMv7 e ARM64 compatíveis com minSdk 26.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action tenta publicar o APK debug instalável como pré-release **v1.2.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action publica o APK debug instalável como pré-release **v1.3.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades
 
 | Camada | Implementação |
 |---|---|
-| Instalação IPK | SAF Android, Debian-ar, data.tar, data.tar.gz, data.tar.xz e data.tar.bz2, com limites de tamanho, rejeição de symlinks e proteção contra traversal |
+| Instalação IPK | SAF Android, Debian-ar, data.tar, data.tar.gz, data.tar.xz e data.tar.bz2, com limites de tamanho, rejeição de symlinks e proteção contra traversal; análise passiva ELF ARM/ARM64 |
 | HTTP localhost | GET/HEAD/OPTIONS, streaming, HTTP Range 206/416, caminhos absolutos /assets, MIME WASM/JS/áudio/vídeo, porta estável por IPK quando possível |
-| Perfis por IPK | Balanceado, LG legado 1080p e WASM threads; mudança reinicia apenas o IPK |
+| Perfis por IPK | Balanceado, LG legado e WASM threads; alternar TV 16:9 no app, viewport 720p/1080p por manifest; reinicia apenas o IPK |
 | Web | JavaScript, DOM storage, IndexedDB, WebGL, WASM, WebAudio e WebRTC dentro dos limites reais do Android WebView |
 | APIs webOS | webOS, webOSSystem, service.request, PalmServiceBridge, informações do app, mocks Luna marcados MOCK e falhas UNSUPPORTED |
 | Gráficos | Aceleração do WebView Android, teste independente Canvas2D/WebGL1/WebGL2, relatório de erros e tamanho/visibilidade dos Canvas |
@@ -67,7 +81,7 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 
 **WASM threads:** cabeçalhos COOP/COEP e viewport 1080p. Necessário para certos aplicativos com SharedArrayBuffer, mas pode impedir carregamento de recursos externos e não obriga o WebView a oferecer threads.
 
-Na biblioteca, use **⚙ Perfil** no IPK. Durante execução, abra **⋮ → Perfil de compatibilidade**. O menu **Configurações** controla perfil padrão, paisagem e tela ligada.
+Na biblioteca, use **⚙ Perfil** no IPK. Durante execução, abra **⋮ → Perfil de compatibilidade**. O menu **Configurações** controla perfil padrão, paisagem, tela ligada e padrão da tela TV; o botão **TV** alterna o modo de apresentação 16:9 por aplicativo. A opção TV não altera arquivos IPK no disco.
 
 ### Diagnóstico de tela preta
 
@@ -77,7 +91,7 @@ Na biblioteca, use **⚙ Perfil** no IPK. Durante execução, abra **⋮ → Per
 4. Use **Logs** ou **⋮ → Exportar logs** e observe HTTP_404, WEB_ERROR, GRAPHICS, JS_ERROR, CONSOLE e UNSUPPORTED.
 5. Compare perfis Balanceado, LG legado e WASM threads. Se o isolamento impedir recursos remotos, retorne a Balanceado.
 
-**Relatos do usuário na primeira build, ainda não validados na versão 1.1.0:** MaizoSNES abre interface e produz áudio, mas imagem do jogo fica preta; RetroArch e Fruit Ninja iniciam com tela preta.
+**Histórico:** o MaizoSNES webOS já teve tela preta corrigida no projeto próprio via WebGL RGB565. RetroArch nativo agora tem diagnóstico de ELF, porém **continua sem runtime nativo**; IPKs web como Fruit Ninja ainda exigem teste físico.
 
 Um CI verde **não comprova** que essas telas pretas estejam resolvidas. É preciso testar IPKs reais em Android e compartilhar os relatórios.
 
@@ -89,7 +103,7 @@ Um CI verde **não comprova** que essas telas pretas estejam resolvidas. É prec
 - CSP, Service Workers, navegação especial, media/protocolo proprietários e apps com dependência forte da GPU de TV podem continuar falhando.
 - Serviços Luna não suportados retornam erro explícito. Não falsificamos suporte a WebGL, SharedArrayBuffer, DRM ou hardware.
 - O WebView não recebe permissões de microfone/câmera automaticamente. Aplicativos de terceiros podem fazer requisições web e executar scripts; **instale somente IPKs confiáveis**.
-- data.tar.zst, código nativo webOS, DRM/EME específicos da LG, serviços proprietários e aplicativos protegidos de streaming **não são suportados**.
+- data.tar.zst, **execução de código nativo webOS** (análise ELF apenas), DRM/EME específicos da LG, serviços proprietários e aplicativos protegidos de streaming **não são suportados**.
 - Apps podem importar arquivos/ROMs pelo seletor Android SAF quando possuem um elemento de seleção web. Não distribuímos jogos nem ROMs.
 
 ## Desenvolvimento
@@ -100,11 +114,12 @@ Requer JDK 17, Gradle 8.7, Android SDK 35 e minSdk 26.
     node --check app/src/main/assets/webos-shim.js
     node --check app/src/main/assets/graphics-doctor.js
     node --check app/src/main/assets/compat-viewport.js
+    node --test app/src/test/js/tv-viewport.test.cjs
 
 Workflow: .github/workflows/android.yml.
 
 **Comprovado pelo CI:** código compila, testes JUnit/JS passam, APKs são produzidos.
 
-**Não comprovado sem hardware/IPK real:** RetroArch, Fruit Ninja, MaizoSNES, ROMs, LAN/multiplayer, áudio contínuo e apresentação correta de frames.
+**Não comprovado sem hardware/IPK real:** RetroArch (execução nativa indisponível), Fruit Ninja, MaizoSNES nesta nova versão, ROMs, LAN/multiplayer, áudio contínuo e apresentação correta de frames.
 
 Projeto independente Maizon; sem vínculo com LG. Não inclui firmware LG, DRM, ROMs ou bibliotecas proprietárias.

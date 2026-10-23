@@ -90,7 +90,8 @@ public class MainActivity extends Activity {
             String mode = appProfileName(appId);
             boolean isolate = CompatibilityProfiles.isolate(mode);
             server = new LocalWebServer(this, appStorage, isolate, true,
-                    CompatibilityProfiles.tvViewport(mode));
+                    CompatibilityProfiles.tvViewport(mode) || tvDisplayEnabled(appId),
+                    tvLogicalWidth(appId));
             localPort = server.start(appId);
             record("INFO", "Servidor HTTP em 127.0.0.1:" + localPort
                     + "; perfil=" + mode + "; COOP/COEP=" + isolate);
@@ -105,6 +106,49 @@ public class MainActivity extends Activity {
         String fallback = getPreferences(0).getString("default_profile", CompatibilityProfiles.BALANCED);
         return CompatibilityProfiles.normalize(appId == null ? fallback :
                 getPreferences(0).getString("profile_" + appId, fallback));
+    }
+
+    private boolean tvDisplayEnabled(String appId) {
+        if (appId == null) return false;
+        // Keep the already validated MaizoSNES WASM layout unchanged by default.
+        boolean preferred = getPreferences(0).getBoolean("tv_default", true) &&
+                !MaizoLanRuntime.APP_ID.equals(appId);
+        return getPreferences(0).getBoolean("tv_" + appId, preferred);
+    }
+
+    private int tvLogicalWidth(String appId) {
+        if (appId == null) return 1920;
+        File info = new File(appStorage, appId + "/appinfo.json");
+        if (!info.isFile() || info.length() > 128 * 1024) return 1920;
+        try {
+            JSONObject json = new JSONObject(new String(Files.readAllBytes(info.toPath()),
+                    StandardCharsets.UTF_8));
+            return TvDisplayMetrics.parseWidth(json.optString("resolution", "1920x1080"));
+        } catch (Exception ignored) { return 1920; }
+    }
+
+    private void showRuntimeDetails(IpkInstaller.InstalledApp app) {
+        new AlertDialog.Builder(this)
+            .setTitle("Compatibilidade IPK · " + app.title)
+            .setMessage("ID: " + app.id + "\nVersão: " + app.version +
+                "\nEntrada: " + app.main + "\nTipo: " + app.runtime.title() +
+                "\nTela TV: " + (tvDisplayEnabled(app.id) ? "16:9" : "original") +
+                "\nResolução declarada: " + tvLogicalWidth(app.id) + "×" +
+                (tvLogicalWidth(app.id) == 1280 ? "720" : "1080") +
+                "\n\n" + app.runtime.details())
+            .setPositiveButton("Fechar", null)
+            .setNeutralButton("Tela TV ON/OFF", (d, i) -> toggleTvDisplay(app))
+            .show();
+    }
+
+    private void showNativeNotice(IpkInstaller.InstalledApp app) {
+        new AlertDialog.Builder(this)
+            .setTitle("IPK nativo detectado · " + app.title)
+            .setMessage(app.runtime.details() +
+                "\n\nA instalação e a análise funcionam, mas executar código nativo Linux/webOS requer um runtime ABI Linux compatível ou QEMU com bibliotecas. Não vamos simular falsamente esse suporte nem executar binários desconhecidos.")
+            .setPositiveButton("Entendi", null)
+            .setNeutralButton("Ver logs", (d, i) -> showLogs())
+            .show();
     }
 
     private int dp(float n) { return (int) (n * getResources().getDisplayMetrics().density + .5f); }
@@ -149,9 +193,9 @@ public class MainActivity extends Activity {
         scroll.addView(body);
         main.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        TextView heading = text("webOS 22  •  SIMULATOR", 23, TEXT, true);
+        TextView heading = text("MAIZON  •  webOS EMULATOR", 23, TEXT, true);
         body.addView(heading);
-        TextView description = text("LG UQ8050PSB · runtime de compatibilidade IPK (não é firmware LG)", 13, SUB, false);
+        TextView description = text("LG webOS TV 22 · motor WebView/WASM + diagnóstico ELF. Não executa firmware proprietário.", 13, SUB, false);
         description.setPadding(0, dp(10), 0, dp(19)); body.addView(description);
         TextView install = button("＋  Instalar arquivo .IPK", this::pickIpk);
         body.addView(install, new LinearLayout.LayoutParams(-1, dp(55)));
@@ -170,7 +214,7 @@ public class MainActivity extends Activity {
         section.setPadding(0, dp(8), 0, dp(10)); body.addView(section);
         List<IpkInstaller.InstalledApp> apps = IpkInstaller.installed(appStorage);
         if (apps.isEmpty()) {
-            TextView empty = text("Nenhum IPK instalado. Escolha um app webOS com HTML5/JS/WASM para começar.", 15, SUB, false);
+            TextView empty = text("Sua biblioteca está vazia. Toque em Instalar IPK para importar um aplicativo webOS.", 15, SUB, false);
             empty.setPadding(dp(18), dp(28), dp(18), dp(28));
             empty.setBackground(background(PANEL, 14));
             body.addView(empty, new LinearLayout.LayoutParams(-1, -2));
@@ -180,10 +224,21 @@ public class MainActivity extends Activity {
             card.setBackground(background(PANEL, 12));
             TextView title = text("▣  " + app.title, 17, TEXT, true);
             card.addView(title);
-            TextView detail = text(app.id + "  ·  v" + app.version + "   ·  HTML5/IPK", 12, SUB, false);
+            TextView detail = text(app.id + "  ·  v" + app.version + "   ·  " + app.runtime.title(), 12, SUB, false);
             detail.setPadding(0, dp(7), 0, dp(7)); card.addView(detail);
-            TextView hint = text("Toque para iniciar · Segure para desinstalar", 12, ACCENT, false);
+            TextView hint = text("Toque no card para abrir · Segure para desinstalar", 12, ACCENT, false);
             card.addView(hint);
+            LinearLayout quickActions = new LinearLayout(this);
+            quickActions.setGravity(Gravity.CENTER_VERTICAL);
+            TextView open = button(app.runtime.webEntry ? "▶ Abrir" : "ⓘ Nativo", () -> startApp(app));
+            quickActions.addView(open, new LinearLayout.LayoutParams(0, dp(47), 1));
+            TextView info = secondaryButton("Detalhes / ABI", () -> showRuntimeDetails(app));
+            LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(0, dp(47), 1);
+            detailsParams.leftMargin = dp(8);
+            quickActions.addView(info, detailsParams);
+            LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(47));
+            actionsParams.topMargin = dp(8);
+            card.addView(quickActions, actionsParams);
             TextView compatibility = secondaryButton("⚙ " + CompatibilityProfiles.title(appProfileName(app.id)),
                     () -> showAppCompatibility(app));
             LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(45));
@@ -203,7 +258,7 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-1, -2);
             cl.bottomMargin = dp(10); body.addView(card, cl);
         }
-        TextView note = text("STATUS: Luna de sistema usa APIs Android/mocks. MaizoSNES LAN: adaptador Java UDP/TCP (sem Node.js). DRM, binários .so e Node.js genérico não executados.", 12, SUB, false);
+        TextView note = text("Compatibilidade: WebView/WASM executável; ELF/Linux somente identificado. Luna e LAN MaizoSNES parciais. Um APK universal ARMv7 + ARM64; sem firmware LG.", 12, SUB, false);
         note.setPadding(0, dp(13), 0, 0); body.addView(note);
     }
 
@@ -225,10 +280,12 @@ public class MainActivity extends Activity {
     private void showSettings() {
         boolean landscape = getPreferences(0).getBoolean("landscape", true);
         boolean awake = getPreferences(0).getBoolean("awake", true);
+        boolean tvDefault = getPreferences(0).getBoolean("tv_default", true);
         String[] opts = {
             "Perfil padrão: " + CompatibilityProfiles.title(appProfileName(null)),
             "Forçar paisagem: " + (landscape ? "SIM" : "NÃO"),
             "Manter tela ligada: " + (awake ? "SIM" : "NÃO"),
+            "Tela TV 16:9 para IPKs: " + (tvDefault ? "PADRÃO" : "MANUAL"),
             "LAN nativa MaizoSNES: " + (nativeLanEnabled() ? "ATIVA" : "DESATIVADA"),
             "Limpar logs de diagnóstico"
         };
@@ -239,6 +296,10 @@ public class MainActivity extends Activity {
                 else if (i == 1) { getPreferences(0).edit().putBoolean("landscape", !landscape).apply(); showSettings(); }
                 else if (i == 2) { getPreferences(0).edit().putBoolean("awake", !awake).apply(); showSettings(); }
                 else if (i == 3) {
+                    getPreferences(0).edit().putBoolean("tv_default", !tvDefault).apply();
+                    showSettings();
+                }
+                else if (i == 4) {
                     boolean enabled = !nativeLanEnabled();
                     getPreferences(0).edit().putBoolean("maizo_lan_enabled", enabled).apply();
                     if (!enabled) stopLanRuntime();
@@ -246,7 +307,7 @@ public class MainActivity extends Activity {
                     if (active != null && MaizoLanRuntime.APP_ID.equals(active.id)) startApp(active);
                     else showSettings();
                 }
-                else if (i == 4) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
+                else if (i == 5) { synchronized (events) { events.clear(); } Toast.makeText(this, "Logs limpos", Toast.LENGTH_SHORT).show(); }
             })
             .setNegativeButton("Fechar", null).show();
     }
@@ -287,6 +348,8 @@ public class MainActivity extends Activity {
                 CompatibilityProfiles.LEGACY, CompatibilityProfiles.THREADED};
         new AlertDialog.Builder(this)
             .setTitle("Perfil do IPK · " + app.title)
+            .setNeutralButton("Tela TV 16:9: " + (tvDisplayEnabled(app.id) ? "LIGADA" : "DESLIGADA"),
+                    (dialog, which) -> toggleTvDisplay(app))
             .setSingleChoiceItems(names, indexOfProfile(appProfileName(app.id)), (dialog, which) -> {
                 getPreferences(0).edit().putString("profile_" + app.id, ids[which]).apply();
                 record("PROFILE", app.id + " -> " + ids[which]);
@@ -295,6 +358,14 @@ public class MainActivity extends Activity {
                 else showLibrary();
             })
             .setNegativeButton("Cancelar", null).show();
+    }
+
+    private void toggleTvDisplay(IpkInstaller.InstalledApp app) {
+        boolean enabled = !tvDisplayEnabled(app.id);
+        getPreferences(0).edit().putBoolean("tv_" + app.id, enabled).apply();
+        record("TV_DISPLAY", app.id + " " + (enabled ? "16:9 ligado" : "16:9 desligado"));
+        if (currentApp != null && currentApp.id.equals(app.id)) startApp(app);
+        else showLibrary();
     }
 
     private void record(String level, String message) {
@@ -345,6 +416,11 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void startApp(IpkInstaller.InstalledApp app) {
+        if (!app.runtime.webEntry) {
+            record("NATIVE", app.id + " " + app.runtime.details().replace('\n', ' '));
+            showNativeNotice(app);
+            return;
+        }
         appGeneration++;
         stopLanRuntime();
         applyImmersiveUi(false);
@@ -375,6 +451,8 @@ public class MainActivity extends Activity {
         top.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(secondaryButton("GPU", this::showGraphicsDoctor), new LinearLayout.LayoutParams(dp(62), dp(43)));
         top.addView(secondaryButton("Logs", this::showLogs), new LinearLayout.LayoutParams(dp(62), dp(43)));
+        top.addView(secondaryButton(tvDisplayEnabled(app.id) ? "TV ✓" : "TV", () -> toggleTvDisplay(app)),
+                new LinearLayout.LayoutParams(dp(65), dp(43)));
         webView = new WebView(this);
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -395,6 +473,7 @@ public class MainActivity extends Activity {
         // transport is available. Use webOS identity for this one compatible IPK.
         // Other IPKs retain their chosen original User-Agent profile.
         if (CompatibilityProfiles.fakeUA(appProfileName(app.id)) ||
+                tvDisplayEnabled(app.id) ||
                 (nativeLanEnabled() && MaizoLanRuntime.APP_ID.equals(app.id))) {
             ws.setUserAgentString(profile.optString("userAgent", ws.getUserAgentString()));
             if (MaizoLanRuntime.APP_ID.equals(app.id))
@@ -467,11 +546,26 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        main.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        if (tvDisplayEnabled(app.id)) {
+            TvAspectLayout tvFrame = new TvAspectLayout(this);
+            tvFrame.setBackgroundColor(Color.BLACK);
+            tvFrame.addView(webView, new android.view.ViewGroup.LayoutParams(-1, -1));
+            main.addView(tvFrame, new LinearLayout.LayoutParams(-1, 0, 1));
+            record("TV_DISPLAY", app.id + " viewport " + tvLogicalWidth(app.id) +
+                    "x" + (tvLogicalWidth(app.id) == 1280 ? 720 : 1080) + " + frame 16:9");
+        } else {
+            main.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        }
         renderRemote();
         applyScale();
         String url = server.urlFor(app, localPort);
         record("INFO", "Executando " + app.id + " em " + url);
+        if (app.runtime.kind == NativeIpkInspector.Kind.HYBRID) {
+            record("NATIVE", "IPK híbrido: somente a interface WebView do aplicativo será executada. " +
+                    app.runtime.architecture);
+            Toast.makeText(this, "IPK híbrido: componentes nativos ainda não são executados",
+                    Toast.LENGTH_LONG).show();
+        }
         webView.loadUrl(url);
     }
 
@@ -787,8 +881,12 @@ public class MainActivity extends Activity {
                 try (InputStream stream = getContentResolver().openInputStream(uri)) {
                     if (stream == null) throw new IOException("Arquivo indisponível");
                     IpkInstaller.InstalledApp installed = IpkInstaller.install(stream, appStorage);
-                    record("INFO", "IPK instalado: " + installed.id);
-                    handler.post(() -> { showLibrary(); Toast.makeText(this, "Instalado: " + installed.title, Toast.LENGTH_LONG).show(); });
+                    record("INFO", "IPK instalado: " + installed.id + " · " + installed.runtime.title());
+                    handler.post(() -> {
+                        showLibrary();
+                        Toast.makeText(this, "Instalado: " + installed.title, Toast.LENGTH_LONG).show();
+                        if (!installed.runtime.webEntry) showNativeNotice(installed);
+                    });
                 } catch (Exception e) {
                     record("ERROR", "Instalação: " + e.getMessage());
                     handler.post(() -> new AlertDialog.Builder(this).setTitle("IPK não instalado")

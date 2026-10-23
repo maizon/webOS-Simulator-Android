@@ -91,10 +91,17 @@ public final class HttpSupport {
 
     /** Inject scripts before application scripts while preserving the original IPK files on disk. */
     public static String inject(String html, boolean shim, boolean doctor, boolean tvViewport) {
+        return inject(html, shim, doctor, tvViewport, 1920);
+    }
+
+    /** The 720p and 1080p modes retain their original logical CSS sizes. */
+    public static String inject(String html, boolean shim, boolean doctor,
+                                boolean tvViewport, int logicalWidth) {
         StringBuilder injection = new StringBuilder();
         if (shim) injection.append("<script src=\"/__webos_shim.js\"></script>");
         if (doctor) injection.append("<script src=\"/__graphics_doctor.js\"></script>");
-        if (tvViewport) injection.append("<script src=\"/__compat_viewport.js\"></script>");
+        if (tvViewport) injection.append("<script src=\"/__compat_viewport.js\" data-tv-width=\"")
+            .append(logicalWidth == 1280 ? 1280 : 1920).append("\"></script>");
         if (injection.length() == 0) return html;
         String low = html.toLowerCase(Locale.ROOT);
         int head = low.indexOf("<head");

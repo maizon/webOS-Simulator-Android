@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Installs only web assets from Debian-ar IPK archives; it never executes native libraries. */
+/** Safely extracts Debian-ar IPKs for inspection and web execution; never executes native code. */
 public final class IpkInstaller {
     private static final long MAX_TOTAL_BYTES = 512L * 1024 * 1024;
     private static final long MAX_ENTRY_BYTES = 128L * 1024 * 1024;
@@ -27,9 +27,14 @@ public final class IpkInstaller {
     public static final class InstalledApp {
         public final String id, title, main, version;
         public final File directory;
+        public final NativeIpkInspector.Report runtime;
         public InstalledApp(String id, String title, String main, String version, File directory) {
+            this(id, title, main, version, directory, "web");
+        }
+        public InstalledApp(String id, String title, String main, String version, File directory, String declaredType) {
             this.id = id; this.title = title; this.main = main;
             this.version = version; this.directory = directory;
+            this.runtime = NativeIpkInspector.inspect(directory, main, declaredType);
         }
     }
 
@@ -149,12 +154,17 @@ public final class IpkInstaller {
                 throw new IOException("Entrada remota ou inválida (main)");
             }
             File index = safeResolve(appRoot, main);
-            if (!index.isFile()) throw new IOException("Arquivo main não encontrado: " + main);
+            NativeIpkInspector.Report preflight =
+                    NativeIpkInspector.inspect(appRoot, main, info.optString("type", "web"));
+            if (!index.isFile() && preflight.elfCount == 0) {
+                throw new IOException("IPK sem entrada web ou executável ELF identificado: " + main);
+            }
             File destination = new File(storage, id);
             if (destination.exists()) throw new IOException("Aplicativo já instalado; desinstale antes de atualizar");
             Files.move(appRoot.toPath(), destination.toPath());
             String title = info.optString("title", id);
-            return new InstalledApp(id, title, main, info.optString("version", "?"), destination);
+            return new InstalledApp(id, title, main, info.optString("version", "?"), destination,
+                    info.optString("type", "web"));
         } finally { deleteTree(staging); }
     }
 
@@ -183,8 +193,11 @@ public final class IpkInstaller {
                 String id = info.optString("id", "");
                 if (!id.equals(dir.getName())) continue;
                 String main = info.optString("main", "index.html");
-                if (!safeResolve(dir, main).isFile()) continue;
-                apps.add(new InstalledApp(id, info.optString("title", id), main, info.optString("version", "?"), dir));
+                NativeIpkInspector.Report report =
+                        NativeIpkInspector.inspect(dir, main, info.optString("type", "web"));
+                if (!safeResolve(dir, main).isFile() && report.elfCount == 0) continue;
+                apps.add(new InstalledApp(id, info.optString("title", id), main, info.optString("version", "?"),
+                        dir, info.optString("type", "web")));
             } catch (Exception ignored) { }
         }
         apps.sort((a,b) -> a.title.toLowerCase(Locale.ROOT).compareTo(b.title.toLowerCase(Locale.ROOT)));

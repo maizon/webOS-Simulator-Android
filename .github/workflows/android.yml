@@ -35,6 +35,7 @@ jobs:
           node --check app/src/main/assets/webos-shim.js
           node --test app/src/test/js/luna-shim.test.cjs
           node --check app/src/main/assets/compat-viewport.js
+          node --test app/src/test/js/tv-viewport.test.cjs
       - name: Run unit tests and assemble APKs
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
       - name: Inspect build outputs
@@ -47,7 +48,18 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/compat-viewport.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/webos-shim.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/uq8050psb.json'
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'classes.dex'
+          # This version has no JNI payload: ordinary Java code works across
+          # ARMv7/ARM64 (and other Android ABIs) without separate APKs.
+          NATIVE_LIBS="$(unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep '^lib/' || true)"
+          if [ -n "$NATIVE_LIBS" ]; then
+            echo "$NATIVE_LIBS"
+            echo "A native payload was added: require both armeabi-v7a and arm64-v8a before release."
+            echo "$NATIVE_LIBS" | grep '^lib/armeabi-v7a/' >/dev/null
+            echo "$NATIVE_LIBS" | grep '^lib/arm64-v8a/' >/dev/null
+          else
+            echo 'ABI check: universal Java APK (no native JNI libs)'
+          fi
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: webos-simulator-android-apks
@@ -56,14 +68,21 @@ jobs:
             app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 30
-      - name: Publish installable debug APK as optional GitHub prerelease
+      - name: Publish installable universal debug APK and checksum
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="v1.2.0"
-          cp app/build/outputs/apk/debug/app-debug.apk webos-ipk-simulator-v1.2.0-debug.apk
-          gh release view "$VERSION" >/dev/null 2>&1 ||             gh release create "$VERSION" --title "webOS IPK Simulator 1.2.0 — MaizoSNES LAN UDP/TCP (experimental)"               --notes "Install the debug APK. This is a webOS web-app compatibility layer, not LG firmware or guaranteed compatibility."               --prerelease
-          gh release upload "$VERSION" webos-ipk-simulator-v1.2.0-debug.apk --clobber
+          VERSION="v1.3.0"
+          cp app/build/outputs/apk/debug/app-debug.apk maizon-webos-emulator-v1.3.0-universal-debug.apk
+          sha256sum maizon-webos-emulator-v1.3.0-universal-debug.apk > maizon-webos-emulator-v1.3.0-universal-debug.apk.sha256
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" \
+              --title "Maizon webOS Emulator 1.3.0 — TV 16:9 / ELF inspection (experimental)" \
+              --notes "Universal Java APK: installs webOS IPKs; executes supported HTML5/WASM apps, detects native/hybrid ELF packages WITHOUT running Linux/webOS binaries. TV 16:9 is per app. RetroArch native is not supported. Includes MaizoSNES LAN adapter. Debug-signed test release." \
+              --prerelease
+          fi
+          gh release upload "$VERSION" \
+            maizon-webos-emulator-v1.3.0-universal-debug.apk \
+            maizon-webos-emulator-v1.3.0-universal-debug.apk.sha256 --clobber
 
