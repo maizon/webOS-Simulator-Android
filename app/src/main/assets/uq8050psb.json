@@ -1,0 +1,16 @@
+{
+  "profileId": "lg-uq8050psb-webos22",
+  "profileType": "approximation-not-firmware",
+  "manufacturer": "LG",
+  "modelName": "UQ8050PSB",
+  "webOSVersion": "7.0",
+  "platformVersion": "webOS TV 22",
+  "screen": { "width": 1920, "height": 1080, "devicePixelRatio": 1 },
+  "userAgent": "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36 WebAppManager",
+  "mockResponses": {
+    "luna://com.webos.service.connectionmanager/getStatus": {"returnValue": true, "isInternetConnectionAvailable": true, "wired": {"state": "disconnected"}, "wifi": {"state": "connected"}},
+    "luna://com.webos.service.tv.systemproperty/getSystemInfo": {"returnValue": true, "modelName": "UQ8050PSB", "platformVersion": "webOS TV 22"},
+    "luna://com.webos.service.tv.display/getDisplayStatus": {"returnValue": true, "display": {"width": 1920, "height": 1080}},
+    "luna://com.webos.service.config/getConfigs": {"returnValue": true, "configs": {}}
+  }
+}
