@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graphics Doctor • Teste GPU independente</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{font:14px/1.5 system-ui,sans-serif;background:#10131c;color:#edf1fa;margin:0;padding:14px}
+h2{font-size:19px;margin:4px 0 8px}p{color:#b6c5dd;margin:6px 0 12px}
+.box{background:#1c2330;padding:12px;border-radius:12px;margin:10px 0}
+canvas{border:2px solid #45516c;width:100%;max-width:440px;height:90px;display:block;border-radius:6px}
+.ok{color:#76e9af}.fail{color:#ff928f}.neutral{color:#bdc9db}
+button{border:0;border-radius:8px;background:#63dfbe;color:#111d21;padding:10px 12px;font-weight:700;width:100%}
+code{overflow-wrap:anywhere}small{font-size:12px}
+</style>
+</head>
+<body>
+<h2>Graphics Doctor — Teste de GPU</h2>
+<p>Esta página é independente do IPK. Se os três quadros abaixo aparecem corretamente, o WebView consegue apresentar Canvas/WebGL básico; isso não comprova compatibilidade com o jogo.</p>
+<div class="box"><strong>Canvas 2D</strong><canvas id="c2d" width="440" height="90"></canvas><div id="r2d" class="neutral">Testando…</div></div>
+<div class="box"><strong>WebGL 1</strong><canvas id="cgl1" width="440" height="90"></canvas><div id="rgl1" class="neutral">Testando…</div></div>
+<div class="box"><strong>WebGL 2</strong><canvas id="cgl2" width="440" height="90"></canvas><div id="rgl2" class="neutral">Testando…</div></div>
+<div class="box"><strong>Ambiente</strong><div id="env">Testando…</div><div id="raf">requestAnimationFrame: testando…</div></div>
+<button onclick="location.reload()">Repetir os testes</button>
+<p><small>Quadros verdes não significam que todos os aplicativos gráficos sejam compatíveis. Compartilhe também os logs do IPK.</small></p>
+<script>
+(function(){
+'use strict';
+function report(id, success, message){
+ var el=document.getElementById(id);
+ el.className=success?'ok':'fail';
+ el.textContent=(success?'OK — ':'FALHA — ')+message;
+ console.log('GraphicsSelfTest '+id+' '+el.textContent);
+}
+function test2d(){
+ try{
+  var canvas=document.getElementById('c2d'),ctx=canvas.getContext('2d');
+  if(!ctx){report('r2d',false,'Canvas 2D não disponível');return;}
+  var fill=ctx.createLinearGradient(0,0,440,0);
+  fill.addColorStop(0,'#32a993');fill.addColorStop(1,'#6cd7aa');
+  ctx.fillStyle=fill;ctx.fillRect(0,0,440,90);
+  ctx.font='bold 20px sans-serif';ctx.fillStyle='#122321';ctx.fillText('CANVAS 2D • QUADRO VISÍVEL',12,51);
+  var p=ctx.getImageData(10,5,1,1).data;
+  report('r2d',p[3]===255,'pixel RGBA='+Array.prototype.join.call(p,','));
+ }catch(e){report('r2d',false,String(e));}
+}
+function compile(gl,type,src){
+ var shader=gl.createShader(type);gl.shaderSource(shader,src);gl.compileShader(shader);
+ if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error('Shader: '+gl.getShaderInfoLog(shader));
+ return shader;
+}
+function testGl(canvasId,resultId,kind){
+ var gl;
+ try{
+  gl=document.getElementById(canvasId).getContext(kind,{alpha:false,preserveDrawingBuffer:true});
+  if(!gl){report(resultId,false,kind+' indisponível');return;}
+  var vs=compile(gl,gl.VERTEX_SHADER,'attribute vec2 aPos; void main(){gl_Position=vec4(aPos,0.,1.);}');
+  var fs=compile(gl,gl.FRAGMENT_SHADER,'precision mediump float; void main(){gl_FragColor=vec4(0.1,0.9,0.4,1.0);}');
+  var program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);
+  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error('Link: '+gl.getProgramInfoLog(program));
+  gl.useProgram(program);
+  gl.viewport(0,0,440,90);gl.clearColor(.12,.17,.25,1);gl.clear(gl.COLOR_BUFFER_BIT);
+  var buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-.8,-.9, .8,-.9, 0,.9]),gl.STATIC_DRAW);
+  var pos=gl.getAttribLocation(program,'aPos');
+  gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);gl.enableVertexAttribArray(pos);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  var pixel=new Uint8Array(4);gl.readPixels(220,35,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+  var err=gl.getError(),success=err===gl.NO_ERROR&&pixel[1]>pixel[0]&&pixel[1]>pixel[2];
+  report(resultId,success,'triângulo verde '+kind+'; pixel='+Array.from(pixel).join(',')+'; GL error='+err);
+ }catch(e){report(resultId,false,String(e));}
+}
+test2d();testGl('cgl1','rgl1','webgl');testGl('cgl2','rgl2','webgl2');
+var env={
+ webAssembly:typeof WebAssembly!=='undefined',
+ wasmValid:typeof WebAssembly!=='undefined'&&WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0])),
+ sharedArrayBuffer:typeof SharedArrayBuffer!=='undefined',
+ crossOriginIsolated:window.crossOriginIsolated===true,
+ offscreenCanvas:typeof OffscreenCanvas!=='undefined',
+ devicePixelRatio:devicePixelRatio,
+ viewport:innerWidth+' × '+innerHeight,
+ ua:navigator.userAgent
+};
+document.getElementById('env').textContent=JSON.stringify(env,null,2);
+console.log('GraphicsSelfTest ENV '+JSON.stringify(env));
+var samples=0,first=0,last=0;
+function frame(t){
+ if(!first)first=t;last=t;samples++;
+ if(samples<60){requestAnimationFrame(frame);}
+ else {
+  var fps=(samples-1)*1000/Math.max(1,last-first);
+  document.getElementById('raf').textContent='requestAnimationFrame: '+fps.toFixed(1)+' FPS no teste';
+  console.log('GraphicsSelfTest RAF '+fps.toFixed(1));
+ }
+}
+if(typeof requestAnimationFrame==='function')requestAnimationFrame(frame);
+else report('raf',false,'requestAnimationFrame indisponível');
+})();
+</script>
+</body>
+</html>

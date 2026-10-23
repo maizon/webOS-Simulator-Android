@@ -29,6 +29,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - name: Validate diagnostic JavaScript
+        run: |
+          node --check app/src/main/assets/graphics-doctor.js
+          node --check app/src/main/assets/webos-shim.js
       - name: Run unit tests and assemble APKs
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
       - name: Inspect build outputs
@@ -36,6 +40,8 @@ jobs:
           test -s app/build/outputs/apk/debug/app-debug.apk
           test -s app/build/outputs/apk/release/app-release-unsigned.apk
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -E 'classes.*dex'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/graphics-doctor.js'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/graphics-selftest.html'
       - uses: actions/upload-artifact@v4
         with:
           name: webos-simulator-android-apks

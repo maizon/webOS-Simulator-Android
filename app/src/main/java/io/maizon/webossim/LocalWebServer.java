@@ -89,6 +89,12 @@ public final class LocalWebServer {
                 return;
             }
             String requestPath = bits[1].split("\\?")[0];
+            if (requestPath.equals("/__graphics_selftest.html")) {
+                try (InputStream asset = context.getAssets().open("graphics-selftest.html")) {
+                    writeResponse(out, 200, "text/html; charset=utf-8", readLimited(asset, 1024 * 1024), bits[0].equals("HEAD"));
+                }
+                return;
+            }
             if (requestPath.equals("/__graphics_doctor.js")) {
                 try (InputStream asset = context.getAssets().open("graphics-doctor.js")) {
                     writeResponse(out, 200, "application/javascript", readLimited(asset, 1024 * 1024), bits[0].equals("HEAD"));
@@ -175,7 +181,7 @@ public final class LocalWebServer {
                 + "Content-Length: " + size + "\r\n"
                 + "Cache-Control: no-store\r\n"
                 + "X-Content-Type-Options: nosniff\r\n"
-                + "Cross-Origin-Opener-Policy: same-origin\r\n"
+                + (isolation ? "Cross-Origin-Opener-Policy: same-origin\r\n" : "")
                 + "Cross-Origin-Resource-Policy: same-origin\r\n"
                 + (isolation ? "Cross-Origin-Embedder-Policy: require-corp\r\n" : "")
                 + "Connection: close\r\n\r\n";

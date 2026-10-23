@@ -5,6 +5,7 @@
         android:allowBackup="false"
         android:label="webOS IPK Simulator"
         android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"

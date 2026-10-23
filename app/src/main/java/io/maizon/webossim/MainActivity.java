@@ -281,6 +281,24 @@ public class MainActivity extends Activity {
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 record("WEB_ERROR", request.getUrl() + " : " + error.getDescription());
             }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                if (response.getStatusCode() >= 400)
+                    record("HTTP_" + response.getStatusCode(), request.getUrl().toString());
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                record("PAGE", "Carregamento principal concluído: " + url);
+            }
+            @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                record("GPU_ERROR", "Processo WebView encerrado: " +
+                        (detail.didCrash() ? "crash" : "terminação") + ", prioridade=" + detail.rendererPriorityAtExit());
+                if (view.getParent() instanceof android.view.ViewGroup)
+                    ((android.view.ViewGroup) view.getParent()).removeView(view);
+                view.destroy();
+                if (webView == view) webView = null;
+                Toast.makeText(MainActivity.this, "Motor gráfico encerrado. Verifique os logs.", Toast.LENGTH_LONG).show();
+                showLibrary();
+                return true;
+            }
         });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
@@ -354,7 +372,7 @@ public class MainActivity extends Activity {
 
     private void showInputTools() {
         if (webView == null) return;
-        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Exportar logs"};
+        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Exportar logs"};
         new AlertDialog.Builder(this).setTitle("Ferramentas da TV")
             .setItems(options, (d, which) -> {
                 switch (which) {
@@ -362,7 +380,8 @@ public class MainActivity extends Activity {
                     case 1: showTouchpad(); break;
                     case 2: showZoom(); break;
                     case 3: showGraphicsDoctor(); break;
-                    case 4: exportLogs(); break;
+                    case 4: showGraphicsSelfTest(); break;
+                    case 5: exportLogs(); break;
                 }
             }).show();
     }
@@ -395,7 +414,7 @@ public class MainActivity extends Activity {
     private void showTouchpad() {
         if (webView == null) return;
         pointerMode = true;
-        TextView pad = text("TOUCHPAD LG\\n\\nArraste para mover o ponteiro\\nToque para clicar", 16, TEXT, true);
+        TextView pad = text("TOUCHPAD LG\n\nArraste para mover o ponteiro\nToque para clicar", 16, TEXT, true);
         pad.setGravity(Gravity.CENTER);
         pad.setBackground(background(PANEL, 15));
         pad.setOnTouchListener((v, event) -> {
@@ -441,9 +460,45 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** Independent visual verification; does not navigate away from a running IPK. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private void showGraphicsSelfTest() {
+        if (localPort == 0) {
+            Toast.makeText(this, "Servidor local indisponível", Toast.LENGTH_LONG).show();
+            return;
+        }
+        WebView diagnostic = new WebView(this);
+        diagnostic.getSettings().setJavaScriptEnabled(true);
+        diagnostic.setBackgroundColor(0xff10131c);
+        diagnostic.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage message) {
+                record("GPU_TEST", message.message());
+                return true;
+            }
+        });
+        diagnostic.setWebViewClient(new WebViewClient() {
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                record("GPU_TEST_ERROR", request.getUrl() + ": " + error.getDescription());
+            }
+        });
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Graphics Doctor · Teste independente")
+                .setView(diagnostic)
+                .setPositiveButton("Fechar", null)
+                .create();
+        dialog.setOnDismissListener(d -> {
+            diagnostic.stopLoading();
+            diagnostic.destroy();
+        });
+        dialog.show();
+        diagnostic.getLayoutParams().height = dp(420);
+        diagnostic.requestLayout();
+        diagnostic.loadUrl("http://127.0.0.1:" + localPort + "/__graphics_selftest.html");
+    }
+
     private void exportLogs() {
-        StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\\n");
-        synchronized (events) { for (String event : events) content.append(event).append('\\n'); }
+        StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\n");
+        synchronized (events) { for (String event : events) content.append(event).append('\n'); }
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType("text/plain");
         send.putExtra(Intent.EXTRA_TEXT, content.toString());
