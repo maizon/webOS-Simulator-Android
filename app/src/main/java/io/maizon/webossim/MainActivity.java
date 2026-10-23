@@ -42,6 +42,9 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> webFiles;
     private LinearLayout main;
     private IpkInstaller.InstalledApp currentApp;
+    private float touchX, touchY;
+    private boolean pointerMode = false;
+    private int pointerX = 960, pointerY = 540;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -108,6 +111,8 @@ public class MainActivity extends Activity {
     }
     private void showLibrary() {
         currentApp = null;
+        setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (webView != null) {
             webView.stopLoading(); webView.destroy(); webView = null;
         }
@@ -189,14 +194,18 @@ public class MainActivity extends Activity {
     private void showSettings() {
         boolean isolation = getPreferences(0).getBoolean("isolation", true);
         boolean fakeAgent = getPreferences(0).getBoolean("fakeua", true);
-        String[] opts = {"COOP/COEP para WASM threads (reinicia servidor)", "User-Agent compatível webOS 22"};
-        boolean[] selected = {isolation, fakeAgent};
+        String[] opts = {"COOP/COEP para WASM threads (reinicia servidor)", "User-Agent compatível webOS 22", "Forçar orientação paisagem ao iniciar IPK", "Manter tela ligada no jogo"};
+        boolean[] selected = {isolation, fakeAgent,
+            getPreferences(0).getBoolean("landscape", true),
+            getPreferences(0).getBoolean("awake", true)};
         new AlertDialog.Builder(this)
             .setTitle("LG UQ8050PSB · compatibilidade")
             .setMultiChoiceItems(opts, selected, (d, i, checked) -> selected[i] = checked)
             .setMessage("A resolução 1920×1080 é lógica no perfil. Android WebView não reproduz a GPU/firmware da TV.")
             .setPositiveButton("Salvar", (d, i) -> {
-                getPreferences(0).edit().putBoolean("isolation", selected[0]).putBoolean("fakeua", selected[1]).apply();
+                getPreferences(0).edit().putBoolean("isolation", selected[0])
+                    .putBoolean("fakeua", selected[1]).putBoolean("landscape", selected[2])
+                    .putBoolean("awake", selected[3]).apply();
                 if (selected[0] != isolation) launchServer();
                 showLibrary();
             }).setNegativeButton("Cancelar", null).show();
@@ -226,6 +235,10 @@ public class MainActivity extends Activity {
         launchServer(app.id);
         if (localPort == 0) { Toast.makeText(this, "Servidor HTTP indisponível", Toast.LENGTH_LONG).show(); return; }
         currentApp = app;
+        if (getPreferences(0).getBoolean("landscape", true))
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        if (getPreferences(0).getBoolean("awake", true))
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         main.removeAllViews();
         LinearLayout top = new LinearLayout(this);
         top.setPadding(dp(7), dp(7), dp(7), dp(7));
@@ -236,7 +249,8 @@ public class MainActivity extends Activity {
         top.addView(home, new LinearLayout.LayoutParams(dp(116), dp(43)));
         TextView label = text("  " + app.title, 15, TEXT, true);
         top.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-        top.addView(secondaryButton("Logs", this::showLogs), new LinearLayout.LayoutParams(dp(70), dp(43)));
+        top.addView(secondaryButton("GPU", this::showGraphicsDoctor), new LinearLayout.LayoutParams(dp(62), dp(43)));
+        top.addView(secondaryButton("Logs", this::showLogs), new LinearLayout.LayoutParams(dp(62), dp(43)));
         webView = new WebView(this);
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -293,6 +307,7 @@ public class MainActivity extends Activity {
         });
         main.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
         renderRemote();
+        applyScale();
         String url = server.urlFor(app, localPort);
         record("INFO", "Executando " + app.id + " em " + url);
         webView.loadUrl(url);
@@ -310,6 +325,10 @@ public class MainActivity extends Activity {
         addKey(row, "▼", "ArrowDown", 40);
         addKey(row, "▶", "ArrowRight", 39);
         addKey(row, "↩", "Escape", 27);
+        addKey(row, "⌂", "Home", 36);
+        TextView tools = secondaryButton("⋮", this::showInputTools);
+        LinearLayout.LayoutParams toolParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        toolParams.leftMargin = dp(3); row.addView(tools, toolParams);
     }
     private void addKey(LinearLayout row, String label, String key, int code) {
         TextView b = secondaryButton(label, () -> dispatchKey(key, code));
@@ -321,6 +340,114 @@ public class MainActivity extends Activity {
         String script = "(function(){['keydown','keyup'].forEach(function(t){document.activeElement.dispatchEvent(new KeyboardEvent(t,{key:"
                 + JSONObject.quote(key) + ",keyCode:" + code + ",which:" + code + ",bubbles:true}));});})()";
         webView.evaluateJavascript(script, null);
+    }
+
+
+    /** Device-level visual scaling; this does not alter the IPK's rendering backend. */
+    private void applyScale() {
+        if (webView == null || currentApp == null) return;
+        int zoom = getPreferences(0).getInt("zoom_" + currentApp.id, 100);
+        webView.setInitialScale(zoom);
+        webView.getSettings().setUseWideViewPort(true);
+        webView.getSettings().setLoadWithOverviewMode(true);
+    }
+
+    private void showInputTools() {
+        if (webView == null) return;
+        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Exportar logs"};
+        new AlertDialog.Builder(this).setTitle("Ferramentas da TV")
+            .setItems(options, (d, which) -> {
+                switch (which) {
+                    case 0: showFullRemote(); break;
+                    case 1: showTouchpad(); break;
+                    case 2: showZoom(); break;
+                    case 3: showGraphicsDoctor(); break;
+                    case 4: exportLogs(); break;
+                }
+            }).show();
+    }
+
+    private void showFullRemote() {
+        String[] labels = {"HOME", "BACK", "OK", "PLAY/PAUSE", "VOL +", "VOL -", "CH +", "CH -",
+                "RED", "GREEN", "YELLOW", "BLUE", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+        String[] keys = {"Home", "Escape", "Enter", "MediaPlayPause", "AudioVolumeUp", "AudioVolumeDown",
+                "PageUp", "PageDown", "F1", "F2", "F3", "F4", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+        new AlertDialog.Builder(this).setTitle("LG Magic Remote · teclas compatíveis")
+            .setItems(labels, (d, which) -> dispatchKey(keys[which], 0))
+            .setNegativeButton("Fechar", null).show();
+    }
+
+    private void showZoom() {
+        if (currentApp == null || webView == null) return;
+        String[] levels = {"50%", "75%", "100% (padrão)", "125%", "150%", "200%", "300%"};
+        int[] values = {50, 75, 100, 125, 150, 200, 300};
+        new AlertDialog.Builder(this).setTitle("Escala visual · viewport TV")
+            .setSingleChoiceItems(levels, -1, (dialog, index) -> {
+                int value = values[index];
+                getPreferences(0).edit().putInt("zoom_" + currentApp.id, value).apply();
+                webView.setInitialScale(value);
+                webView.evaluateJavascript("document.documentElement.style.zoom=" + (value / 100.0) + ";", null);
+                record("INFO", "Zoom visual/CSS " + value + "%; viewport lógico pode variar");
+                dialog.dismiss();
+            }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private void showTouchpad() {
+        if (webView == null) return;
+        pointerMode = true;
+        TextView pad = text("TOUCHPAD LG\\n\\nArraste para mover o ponteiro\\nToque para clicar", 16, TEXT, true);
+        pad.setGravity(Gravity.CENTER);
+        pad.setBackground(background(PANEL, 15));
+        pad.setOnTouchListener((v, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    touchX = event.getX(); touchY = event.getY(); return true;
+                case MotionEvent.ACTION_MOVE:
+                    pointerX = Math.max(0, Math.min(webView.getWidth(), pointerX + Math.round((event.getX() - touchX) * 2)));
+                    pointerY = Math.max(0, Math.min(webView.getHeight(), pointerY + Math.round((event.getY() - touchY) * 2)));
+                    touchX = event.getX(); touchY = event.getY();
+                    sendPointer(false); return true;
+                case MotionEvent.ACTION_UP:
+                    sendPointer(true); return true;
+            }
+            return true;
+        });
+        new AlertDialog.Builder(this).setTitle("Magic Remote · mouse virtual")
+            .setView(pad).setPositiveButton("Fechar", (d, w) -> pointerMode = false).show();
+    }
+
+    private void sendPointer(boolean click) {
+        if (webView == null) return;
+        int x = Math.max(0, pointerX), y = Math.max(0, pointerY);
+        String js = "(function(){var x=" + x + ",y=" + y
+                + ",el=document.elementFromPoint(x,y);if(!el)return;"
+                + "el.dispatchEvent(new MouseEvent('mousemove',{bubbles:true,clientX:x,clientY:y}));"
+                + (click ? "el.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,clientX:x,clientY:y}));"
+                    + "el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,clientX:x,clientY:y}));"
+                    + "el.click();" : "")
+                + "})()";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private void showGraphicsDoctor() {
+        if (webView == null) { Toast.makeText(this, "Abra um IPK primeiro", Toast.LENGTH_SHORT).show(); return; }
+        webView.evaluateJavascript("(function(){return JSON.stringify(window.WebOSGraphicsDoctor ? window.WebOSGraphicsDoctor.scan() : {error:'Graphics Doctor ausente'});})()", raw -> {
+            String display = raw == null ? "Sem resposta" : raw;
+            try { display = new org.json.JSONTokener(raw).nextValue().toString(); } catch (Exception ignored) {}
+            record("GPU", display);
+            new AlertDialog.Builder(this).setTitle("Graphics Doctor · diagnóstico real")
+                .setMessage(display).setPositiveButton("Fechar", null)
+                .setNeutralButton("Logs", (d, which) -> showLogs()).show();
+        });
+    }
+
+    private void exportLogs() {
+        StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\\n");
+        synchronized (events) { for (String event : events) content.append(event).append('\\n'); }
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT, content.toString());
+        startActivity(Intent.createChooser(send, "Compartilhar diagnóstico"));
     }
 
     private class LunaBridge {

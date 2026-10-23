@@ -49,3 +49,7 @@ Requires Android SDK 35, JDK 17, Gradle 8.7; GitHub Actions supplies these. Open
 Use the **actual MaizoSNES webOS IPK**, inspect its `appinfo.json`, JS/WASM/thread configuration, network endpoints and Luna service usage. Launch a legally provided ROM, verify audio/video, ROM sharing, LAN and online separately on physical Android devices and the LG TV. Until then, do not claim full compatibility.
 
 Maintainer: Maizon. Community project; no affiliation with LG.
+
+
+## Graphics Doctor / TV controls (experimental update)
+The IPK playback screen now includes a **GPU** button with passive canvas size/visibility checks, WebGL1/2 smoke tests, WebAssembly feature detection, and console logging. The **⋮** remote button opens a full virtual remote, touchpad-style synthetic pointer, per-app zoom (50–300%), and shareable logs. Settings can request landscape orientation and keep the screen on. The diagnostic probes run on demand and **do not claim to repair black frames automatically**. Synthetic pointer events cannot replicate all trusted input behaviors. WebView cannot be switched freely to Vulkan/OpenGL or made identical to LG's browser. Physical MaizoSNES IPK tests remain required.

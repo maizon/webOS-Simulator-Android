@@ -89,6 +89,12 @@ public final class LocalWebServer {
                 return;
             }
             String requestPath = bits[1].split("\\?")[0];
+            if (requestPath.equals("/__graphics_doctor.js")) {
+                try (InputStream asset = context.getAssets().open("graphics-doctor.js")) {
+                    writeResponse(out, 200, "application/javascript", readLimited(asset, 1024 * 1024), bits[0].equals("HEAD"));
+                }
+                return;
+            }
             if (requestPath.equals("/__webos_shim.js")) {
                 try (InputStream asset = context.getAssets().open("webos-shim.js")) {
                     writeResponse(out, 200, "application/javascript", readLimited(asset, 1024 * 1024), bits[0].equals("HEAD"));
@@ -121,7 +127,7 @@ public final class LocalWebServer {
                 byte[] data;
                 try (InputStream input = new FileInputStream(file)) { data = readLimited(input, 8 * 1024 * 1024); }
                 String html = new String(data, StandardCharsets.UTF_8);
-                String shim = "<script src=\"/__webos_shim.js\"></script>";
+                String shim = "<script src=\"/__webos_shim.js\"></script><script src=\"/__graphics_doctor.js\"></script>";
                 int start = html.toLowerCase(Locale.ROOT).indexOf("<head");
                 int end = start >= 0 ? html.indexOf('>', start) : -1;
                 html = end >= 0 ? html.substring(0, end + 1) + shim + html.substring(end + 1) : shim + html;
