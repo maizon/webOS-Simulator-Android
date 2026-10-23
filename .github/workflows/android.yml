@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check app/src/main/assets/graphics-doctor.js
           node --check app/src/main/assets/webos-shim.js
+          node --test app/src/test/js/luna-shim.test.cjs
           node --check app/src/main/assets/compat-viewport.js
       - name: Run unit tests and assemble APKs
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
@@ -45,6 +46,7 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/graphics-selftest.html'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/compat-viewport.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/webos-shim.js'
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/uq8050psb.json'
       - uses: actions/upload-artifact@v4
         with:
           name: webos-simulator-android-apks
@@ -59,8 +61,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="v1.0.0"
-          cp app/build/outputs/apk/debug/app-debug.apk webos-ipk-simulator-v1.0.0-debug.apk
-          gh release view "$VERSION" >/dev/null 2>&1 ||             gh release create "$VERSION" --title "webOS IPK Simulator 1.0.0 (experimental)"               --notes "Install the debug APK. This is a webOS web-app compatibility layer, not LG firmware or guaranteed compatibility."               --prerelease
-          gh release upload "$VERSION" webos-ipk-simulator-v1.0.0-debug.apk --clobber
+          VERSION="v1.1.0"
+          cp app/build/outputs/apk/debug/app-debug.apk webos-ipk-simulator-v1.1.0-debug.apk
+          gh release view "$VERSION" >/dev/null 2>&1 ||             gh release create "$VERSION" --title "webOS IPK Simulator 1.1.0 — Luna TV API (experimental)"               --notes "Install the debug APK. This is a webOS web-app compatibility layer, not LG firmware or guaranteed compatibility."               --prerelease
+          gh release upload "$VERSION" webos-ipk-simulator-v1.1.0-debug.apk --clobber
 

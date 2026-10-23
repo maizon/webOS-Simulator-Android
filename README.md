@@ -1,4 +1,4 @@
-# webOS IPK Simulator Android — 1.0.0 (experimental)
+# webOS IPK Simulator Android — 1.1.0 (experimental)
 
 Projeto independente da comunidade **Maizon** para executar aplicativos web empacotados como IPK de webOS no Android. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
@@ -6,13 +6,23 @@ Projeto independente da comunidade **Maizon** para executar aplicativos web empa
 
 O IPK instalado permanece original: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
 
+## Luna / webOS TV 22 — v1.1.0
+
+**Nova camada de compatibilidade webOS/Luna**, baseada nas referências públicas da LG: `webOS.service.request`, `PalmServiceBridge`, `webOSDev`, `webOS.deviceInfo(callback)`, `fetchAppId`, `fetchAppInfo`, `webOSSystem` e serviços simulados de rede, horário, idioma, informações da TV, áudio virtual, app manager e banco privado por IPK. Suporta callbacks `onSuccess`, `onFailure`, `onComplete`, `subscribe` (sondagem limitada) e `cancel`.
+
+Na tela do IPK: **⋮ → Teste de APIs Luna webOS 22**. Resultados indicam `ANDROID_NETWORK`, `ANDROID_CLOCK`, `TV_PROFILE`, `VIRTUAL_AUDIO`, `APP_PRIVATE_DB`, `MOCK` ou `UNSUPPORTED`. Chamadas a DRM, LGUDID, Keymanager, BLE, câmera, serviços nativos e recursos proprietários retornam falha explícita. **Não há suporte a todas as APIs Luna de uma Smart TV real, nem firmware LG ou validação ACG**.
+
+[**Matriz detalhada das APIs e limitações**](docs/LUNA_API_MATRIX.md).
+
+**Release v1.1.0**: APK debug instalável publicado separadamente da versão 1.1.0, para preservar uma cópia estável. O MaizoSNES webOS e o MaizoSNES Android originais não foram modificados neste repositório.
+
 ## Baixar e instalar APK
 
 Abra **Actions → Android APK → última execução verde → Artifacts → webos-simulator-android-apks → app-debug.apk**.
 
 - app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. É um APK Java universal, sem bibliotecas JNI do projeto, para Android ARMv7 e ARM64 compatíveis com minSdk 26.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action tenta publicar o APK debug instalável como pré-release **v1.0.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action tenta publicar o APK debug instalável como pré-release **v1.1.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades
@@ -48,7 +58,7 @@ Na biblioteca, use **⚙ Perfil** no IPK. Durante execução, abra **⋮ → Per
 4. Use **Logs** ou **⋮ → Exportar logs** e observe HTTP_404, WEB_ERROR, GRAPHICS, JS_ERROR, CONSOLE e UNSUPPORTED.
 5. Compare perfis Balanceado, LG legado e WASM threads. Se o isolamento impedir recursos remotos, retorne a Balanceado.
 
-**Relatos do usuário na primeira build, ainda não validados na versão 1.0.0:** MaizoSNES abre interface e produz áudio, mas imagem do jogo fica preta; RetroArch e Fruit Ninja iniciam com tela preta.
+**Relatos do usuário na primeira build, ainda não validados na versão 1.1.0:** MaizoSNES abre interface e produz áudio, mas imagem do jogo fica preta; RetroArch e Fruit Ninja iniciam com tela preta.
 
 Um CI verde **não comprova** que essas telas pretas estejam resolvidas. É preciso testar IPKs reais em Android e compartilhar os relatórios.
 

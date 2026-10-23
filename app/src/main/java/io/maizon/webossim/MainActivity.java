@@ -35,13 +35,15 @@ public class MainActivity extends Activity {
 
     private File appStorage;
     private JSONObject profile;
+    private LunaServiceEngine lunaEngine;
+    private volatile int appGeneration = 0;
     private LocalWebServer server;
     private int localPort;
     private WebView webView;
     private WebChromeClient.FileChooserParams pendingParams;
     private ValueCallback<Uri[]> webFiles;
     private LinearLayout main;
-    private IpkInstaller.InstalledApp currentApp;
+    private volatile IpkInstaller.InstalledApp currentApp;
     private float touchX, touchY;
     private boolean pointerMode = false;
     private int pointerX = 960, pointerY = 540;
@@ -62,6 +64,15 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             profile = new JSONObject(); record("ERROR", "Falha no perfil: " + e);
         }
+        lunaEngine = new LunaServiceEngine(this, profile, appStorage, (id, params) -> {
+            final int epoch = appGeneration;
+            handler.post(() -> {
+                if (epoch == appGeneration && currentApp != null && currentApp.id.equals(id) && webView != null) {
+                    webView.evaluateJavascript("if(window.__webOSSimulatorRelaunch)window.__webOSSimulatorRelaunch(" +
+                            params.toString() + ")", null);
+                }
+            });
+        });
         main = new LinearLayout(this);
         main.setOrientation(LinearLayout.VERTICAL);
         main.setBackgroundColor(BG);
@@ -121,6 +132,7 @@ public class MainActivity extends Activity {
         return c;
     }
     private void showLibrary() {
+        appGeneration++;
         applyImmersiveUi(false);
         currentApp = null;
         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -295,6 +307,7 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void startApp(IpkInstaller.InstalledApp app) {
+        appGeneration++;
         applyImmersiveUi(false);
         if (webView != null) {
             webView.stopLoading();
@@ -345,7 +358,7 @@ public class MainActivity extends Activity {
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0)
             WebView.setWebContentsDebuggingEnabled(true);
-        webView.addJavascriptInterface(new LunaBridge(), "AndroidLuna");
+        webView.addJavascriptInterface(new LunaBridge(app.id, appGeneration), "AndroidLuna");
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
@@ -468,7 +481,7 @@ public class MainActivity extends Activity {
 
     private void showInputTools() {
         if (webView == null) return;
-        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Perfil de compatibilidade", "Tela cheia (Back para restaurar)", "Exportar logs"};
+        String[] options = {"Controle remoto LG completo", "Mouse/touchpad virtual", "Zoom e escala", "Diagnóstico gráfico", "Teste GPU independente", "Perfil de compatibilidade", "Teste de APIs Luna webOS 22", "Tela cheia (Back para restaurar)", "Exportar logs"};
         new AlertDialog.Builder(this).setTitle("Ferramentas da TV")
             .setItems(options, (d, which) -> {
                 switch (which) {
@@ -478,8 +491,9 @@ public class MainActivity extends Activity {
                     case 3: showGraphicsDoctor(); break;
                     case 4: showGraphicsSelfTest(); break;
                     case 5: if (currentApp != null) showAppCompatibility(currentApp); break;
-                    case 6: applyImmersiveUi(true); break;
-                    case 7: exportLogs(); break;
+                    case 6: showLunaSelfTest(); break;
+                    case 7: applyImmersiveUi(true); break;
+                    case 8: exportLogs(); break;
                 }
             }).show();
     }
@@ -598,6 +612,38 @@ public class MainActivity extends Activity {
         diagnostic.loadUrl("http://127.0.0.1:" + localPort + "/__graphics_selftest.html");
     }
 
+    /** Read-only Luna smoke test; runs in the opened IPK without touching its game state. */
+    private void showLunaSelfTest() {
+        if (webView == null || currentApp == null) {
+            Toast.makeText(this, "Abra um IPK primeiro", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String test = "(function(){var queries=["
+                + "['luna://com.palm.connectionmanager/getStatus',{}],"
+                + "['luna://com.palm.systemservice/time/getSystemTime',{}],"
+                + "['luna://com.webos.settingsservice/getSystemSettings',{keys:['localeInfo']}],"
+                + "['luna://com.webos.service.tv.systemproperty/getSystemInfo',{keys:['modelName','sdkVersion']}],"
+                + "['luna://com.webos.applicationManager/getAppLoadStatus',{appId:window.webOS&&webOS.fetchAppId?webOS.fetchAppId():''}],"
+                + "['luna://com.webos.service.drm/isLoaded',{}]];"
+                + "var result={api:{webOS:typeof webOS,webOSDev:typeof webOSDev,"
+                + "PalmServiceBridge:typeof PalmServiceBridge,"
+                + "fetchAppId:window.webOS?typeof webOS.fetchAppId:'missing',"
+                + "deviceInfo:window.webOS?typeof webOS.deviceInfo:'missing'},results:[]};"
+                + "queries.forEach(function(pair){try{var response=JSON.parse(AndroidLuna.request(pair[0],JSON.stringify(pair[1])));"
+                + "result.results.push({uri:pair[0],status:response.__simulator,ok:response.returnValue,"
+                + "error:response.errorText||null});}catch(e){result.results.push({uri:pair[0],error:String(e)});}});"
+                + "return JSON.stringify(result);})()";
+        webView.evaluateJavascript(test, raw -> {
+            String output = raw == null ? "Sem resposta" : raw;
+            try { output = new org.json.JSONTokener(raw).nextValue().toString(); }
+            catch (Exception ignored) {}
+            record("LUNA_TEST", output);
+            new AlertDialog.Builder(this).setTitle("Luna webOS TV 22 · simulada")
+                .setMessage(output).setPositiveButton("Fechar", null)
+                .setNeutralButton("Logs", (d, which) -> showLogs()).show();
+        });
+    }
+
     private void exportLogs() {
         StringBuilder content = new StringBuilder("webOS Simulator / LG UQ8050PSB\n");
         if (currentApp != null) content.append("IPK: ").append(currentApp.id)
@@ -610,33 +656,45 @@ public class MainActivity extends Activity {
     }
 
     private class LunaBridge {
-        @JavascriptInterface public String getProfile() { return profile.toString(); }
-        @JavascriptInterface public String getAppInfo() {
+        private final String appId;
+        private final int epoch;
+        LunaBridge(String appId, int epoch) { this.appId = appId; this.epoch = epoch; }
+
+        private boolean active() {
             IpkInstaller.InstalledApp app = currentApp;
-            if (app == null) return "{}";
+            return app != null && epoch == appGeneration && app.id.equals(appId);
+        }
+
+        @JavascriptInterface public String getProfile() {
+            return active() ? profile.toString() : "{}";
+        }
+
+        @JavascriptInterface public String getAppInfo() {
+            if (!active()) return "{}";
             try {
-                File info = new File(app.directory, "appinfo.json");
-                if (info.length() > 128 * 1024) return "{}";
-                return new String(Files.readAllBytes(info.toPath()), StandardCharsets.UTF_8);
+                File file = new File(appStorage, appId + "/appinfo.json");
+                if (!file.isFile() || file.length() > 128 * 1024) return "{}";
+                return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
             } catch (Exception e) { return "{}"; }
         }
+
         @JavascriptInterface public String request(String uri, String params) {
-            if (uri == null || uri.length() > 512 || params == null || params.length() > 128 * 1024)
-                return "{\"returnValue\":false,\"errorText\":\"invalid request\",\"__simulator\":\"ERROR\"}";
-            JSONObject mocks = profile.optJSONObject("mockResponses");
-            JSONObject resp = mocks == null ? null : mocks.optJSONObject(uri);
-            if (resp != null) {
-                try {
-                    JSONObject result = new JSONObject(resp.toString());
-                    result.put("__simulator", "MOCK");
-                    record("MOCK", "Luna: " + uri);
-                    return result.toString();
-                } catch (Exception ignored) { }
-            }
-            record("UNSUPPORTED", "Luna: " + uri + " params=" + params.substring(0, Math.min(params.length(), 160)));
-            return "{\"returnValue\":false,\"errorCode\":-1,\"errorText\":\"Unsupported Luna API\",\"__simulator\":\"UNSUPPORTED\"}";
+            if (!active()) return LunaServiceEngine.error(-1, "IPK session expired").toString();
+            if (uri == null || uri.length() > 512 || params == null || params.length() > 131072)
+                return LunaServiceEngine.error(-1, "Invalid Luna request").toString();
+            JSONObject data;
+            try { data = new JSONObject(params); }
+            catch (Exception e) { return LunaServiceEngine.error(-1, "Invalid Luna JSON").toString(); }
+            JSONObject response = lunaEngine.request(appId, uri, data);
+            String simulator = response.optString("__simulator", "UNKNOWN");
+            String level = response.optBoolean("returnValue", false) ? "LUNA_" + simulator : "LUNA_UNSUPPORTED";
+            record(level, uri + " " + (response.optBoolean("returnValue") ? "OK" :
+                    response.optString("errorText", "error")));
+            return response.toString();
         }
+
         @JavascriptInterface public void log(String level, String message) {
+            if (!active()) return;
             record(level == null ? "JS" : level.substring(0, Math.min(24, level.length())),
                    message == null ? "" : message.substring(0, Math.min(800, message.length())));
         }
