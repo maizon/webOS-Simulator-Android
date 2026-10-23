@@ -11,7 +11,7 @@ permissions:
 jobs:
   test-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -25,7 +25,23 @@ jobs:
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.14206865"
+      - name: Check tools for reproducible cross-builds
+        run: |
+          command -v python3
+          command -v dpkg-deb
+          command -v tar
+          command -v xz
+          echo 'NDK clang compiles Linux ELF probes; Debian QEMU-user-static downloaded with checksum verification'
+      - name: Build native PRoot ARMv7/ARM64 and bundled Debian Linux sysroots
+        run: |
+          bash tools/build-native-runtime.sh
+          bash tools/build-linux-sysroots.sh
+          for abi in armeabi-v7a arm64-v8a; do
+            test -s "app/src/main/jniLibs/$abi/libmaizon_proot.so"
+            test -s "app/src/main/jniLibs/$abi/libmaizon_loader.so"
+            test -s "app/src/main/assets/native-linux/$abi-rootfs.bundle"
+          done
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
@@ -48,21 +64,19 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/compat-viewport.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/webos-shim.js'
           unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -F 'assets/uq8050psb.json'
-          # This version has no JNI payload: ordinary Java code works across
-          # ARMv7/ARM64 (and other Android ABIs) without separate APKs.
-          NATIVE_LIBS="$(unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep '^lib/' || true)"
-          if [ -n "$NATIVE_LIBS" ]; then
-            echo "$NATIVE_LIBS"
-            echo "A native payload was added: require both armeabi-v7a and arm64-v8a before release."
-            echo "$NATIVE_LIBS" | grep '^lib/armeabi-v7a/' >/dev/null
-            echo "$NATIVE_LIBS" | grep '^lib/arm64-v8a/' >/dev/null
-          else
-            echo 'ABI check: universal Java APK (no native JNI libs)'
-          fi
+          for abi in armeabi-v7a arm64-v8a; do
+            unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "lib/$abi/libmaizon_proot.so"
+            unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "lib/$abi/libmaizon_loader.so"
+            unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "assets/native-linux/$abi-rootfs.bundle"
+          done
+          unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx "assets/native-licenses/PROOT_GPL2.txt"
+          unzip -Z1 app/build/outputs/apk/debug/app-debug.apk | grep -Fx 'classes.dex'
+          echo 'Universal ARM32+ARM64 PRoot binaries and Debian sysroots are present'
+          du -h app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: webos-simulator-android-apks
+          name: maizon-webos-emulator-1.4.0-universal-apks
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
@@ -73,16 +87,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="v1.3.0"
-          cp app/build/outputs/apk/debug/app-debug.apk maizon-webos-emulator-v1.3.0-universal-debug.apk
-          sha256sum maizon-webos-emulator-v1.3.0-universal-debug.apk > maizon-webos-emulator-v1.3.0-universal-debug.apk.sha256
+          VERSION="v1.4.0"
+          cp app/build/outputs/apk/debug/app-debug.apk maizon-webos-emulator-v1.4.0-universal-debug.apk
+          sha256sum maizon-webos-emulator-v1.4.0-universal-debug.apk > maizon-webos-emulator-v1.4.0-universal-debug.apk.sha256
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
             gh release create "$VERSION" \
-              --title "Maizon webOS Emulator 1.3.0 — TV 16:9 / ELF inspection (experimental)" \
-              --notes "Universal Java APK: installs webOS IPKs; executes supported HTML5/WASM apps, detects native/hybrid ELF packages WITHOUT running Linux/webOS binaries. TV 16:9 is per app. RetroArch native is not supported. Includes MaizoSNES LAN adapter. Debug-signed test release." \
+              --title "Maizon webOS Emulator 1.4.0 — Linux ELF PRoot ARM32/ARM64 (experimental)" \
+              --notes "ARM32+ARM64 single debug APK with independently-built GPL-2.0 PRoot launchers and small Debian Linux ARM sysroots. Experimental terminal Linux ELF execution; GPU/SDL/Wayland/RetroArch native are NOT operational or hardware-validated. Existing MaizoSNES WebGL/WSS/LAN retained. Source and licences in repo." \
               --prerelease
           fi
           gh release upload "$VERSION" \
-            maizon-webos-emulator-v1.3.0-universal-debug.apk \
-            maizon-webos-emulator-v1.3.0-universal-debug.apk.sha256 --clobber
+            maizon-webos-emulator-v1.4.0-universal-debug.apk \
+            maizon-webos-emulator-v1.4.0-universal-debug.apk.sha256 --clobber
 

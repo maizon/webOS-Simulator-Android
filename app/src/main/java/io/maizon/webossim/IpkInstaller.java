@@ -156,12 +156,22 @@ public final class IpkInstaller {
             File index = safeResolve(appRoot, main);
             NativeIpkInspector.Report preflight =
                     NativeIpkInspector.inspect(appRoot, main, info.optString("type", "web"));
-            if (!index.isFile() && preflight.elfCount == 0) {
+            NativeIpkInspector.Report overall =
+                    NativeIpkInspector.inspect(staging, "", "native");
+            if (!index.isFile() && preflight.elfCount == 0 && overall.elfCount == 0) {
                 throw new IOException("IPK sem entrada web ou executável ELF identificado: " + main);
             }
             File destination = new File(storage, id);
             if (destination.exists()) throw new IOException("Aplicativo já instalado; desinstale antes de atualizar");
             Files.move(appRoot.toPath(), destination.toPath());
+            // Previously everything outside the appinfo.json folder was
+            // deleted, including native webOS ELF dependencies under usr/lib.
+            // Preserve the remaining payload as data, not as executable Android
+            // code. The PRoot runner can expose it read-only *conceptually* at
+            // /webos, but retains the same UID and is not a security boundary.
+            if (overall.elfCount > 0 && staging.isDirectory()) {
+                Files.move(staging.toPath(), new File(destination, ".webos-package").toPath());
+            }
             String title = info.optString("title", id);
             return new InstalledApp(id, title, main, info.optString("version", "?"), destination,
                     info.optString("type", "web"));
