@@ -10,6 +10,18 @@ Também inclui duas sysroots pequenas de **Debian GNU/Linux armhf e arm64**, ext
 
 Esta entrega NÃO possui: QEMU-user instalado no APK para executar hóspedes de outra arquitetura; compositor X11/Wayland; SDL integrado; áudio Linux; Vulkan/OpenGL de aplicativos Linux; integração webOS de serviços proprietários; DRM. A GPU e o som de aplicativos HTML5/WASM permanecem funcionando no Android WebView como antes. **RetroArch webOS nativo, jogos Linux com janela e aplicativos gráficos NÃO são declarados funcionais.**
 
+## Diagnóstico: `not found` de ELF presente — 1.4.2
+
+Na versão anterior, `NativeLinuxRuntime.launch` utilizava `runtimeRoot(hostAbi(context))` independentemente da classe ELF. Isso selecionava equivocadamente a sysroot Debian **ARM64** para executáveis Linux **ARM32** em aparelho ARM64.
+
+Agora a seleção é independente: `NativeLinuxRunPlan.guestAbi(host, elf, loader32)` usa `armeabi-v7a` para `ELF32 ARM` e `arm64-v8a` para `ELF64 AArch64`. Um host ARM64 rodando guest ARM32 necessita de `PROOT_LOADER_32` e suporte real do kernel a AArch32. Se o kernel não tiver compatibilidade, será necessário acrescentar QEMU-user em uma versão futura.
+
+O novo `ElfProgramInspector` lê passivamente a tabela de segmentos ELF (limites rígidos), localiza **PT_INTERP** e verifica se seu caminho absoluto existe **dentro do guest rootfs**. Se estiver ausente, o usuário recebe o caminho exato esperado. Um arquivo presente em `/app` pode gerar ENOENT em `execve()` quando o loader dinâmico indicado em `PT_INTERP` não existe, ou quando bibliotecas básicas são incompatíveis.
+
+A execução sob BusyBox também verifica a existência do arquivo em `/app` antes de executar, emitindo `MAIZON_GUEST_PATH_MISSING` para distinguir falha de bind no PRoot.
+
+**O suporte gráfico a Fruit Ninja / RetroArch não está implementado.** WebOS usa componentes proprietários e stacks gráficos próprios; o sucesso de compilação não significa execução do jogo no Android.
+
 ## Diagnóstico: 126 / Permission denied (corrigido no instalador 1.4.1)
 
 Se aparecer `maizon: exec: line 0: /app/retroarch: Permission denied`, o código 126 significa que o shell **não conseguiu executar o arquivo**, não que o processador seja lento.

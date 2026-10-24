@@ -1,10 +1,22 @@
-# Maizon webOS Emulator — 1.4.1 (correção de permissões ELF)
+# Maizon webOS Emulator — 1.4.2 (detecção de carregador ELF e ABI Linux)
 
 Projeto independente da comunidade **Maizon**: um único APK universal Android ARM32/ARM64 que instala IPKs, executa apps HTML5/JavaScript/WebAssembly e inclui um **motor Linux ELF experimental** com PRoot e Debian para executar programas nativos de terminal quando a ABI e dependências forem compatíveis. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
 > **AVISO:** não é firmware LG. O PRoot executa Linux ELF experimental **sem janela gráfica nativa, GPU, áudio, SDL ou QEMU-user**; RetroArch e outros jogos Linux gráficos **não estão comprovados nem disponíveis em gameplay**. O código ELF roda sob o mesmo UID e permissões do nosso app; execute apenas IPKs confiáveis. WebView continua intacto. Nenhuma porcentagem de compatibilidade é garantida.
 
 O conteúdo original dos IPKs é preservado: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+
+## Correção 1.4.2 — `/app/fruit-ninja: not found` ao iniciar ELF
+
+**Sintoma:** o BusyBox/PRoot apresenta `maizon: exec: line 0: /app/fruit-ninja: not found`, mesmo quando o arquivo foi identificado e validado como ELF pelo Android.
+
+**Possíveis causas:** o executável está invisível no ponto de montagem `/app`, **ou** o ELF declara um carregador dinâmico `PT_INTERP` (por exemplo `/lib/ld-linux-armhf.so.3`) ausente no ambiente Linux. Nesse segundo caso o kernel retorna ENOENT *apesar de o arquivo do jogo existir*.
+
+**Bug concreto anterior:** o runtime 1.4.1 sempre selecionava a Debian sysroot pela arquitetura do **PRoot host Android**. Um ELF32 ARM aberto no Android ARM64 acabava usando **glibc ARM64**, que não satisfaz o carregador Linux ARM32. Corrigido: o runtime agora seleciona Debian **armhf** para ELF32 ARM e **arm64** para ELF64 AArch64, mesmo quando o host PRoot é ARM64 (exigindo loader32 disponível).
+
+Também criamos um **leitor passivo de cabeçalhos PT_INTERP**, com limites, que apresenta erro diagnóstico contendo a *rota real do carregador ELF faltante*, em vez de somente `not found`. Testes automatizados verificam cabeçalhos ELF32/ELF64, carregadores ausentes e correspondência da ABI de Linux. O shell também distingue erro de montagem `MAIZON_GUEST_PATH_MISSING` quando o arquivo não está visível em `/app`.
+
+**Compatibilidade não garantida:** muitos IPKs webOS exigem bibliotecas e carregadores específicos da LG, além de GPU, SDL ou serviços indisponíveis no nosso ambiente Debian. Esta correção não adiciona QEMU-user no Android nem habilita automaticamente Fruit Ninja ou RetroArch.
 
 ## Correção 1.4.1 — erro 126 / `Permission denied` de ELF nativo
 
@@ -77,7 +89,7 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 
 - app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. **Contém PRoot nativo e sysroots Linux nas duas ABIs** ARMv7/ARM64 e Java/WebView; Android minSdk 26. O APK não é universal x86 neste estágio.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action publica o APK debug instalável como pré-release **v1.4.1** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action publica o APK debug instalável como pré-release **v1.4.2** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades
