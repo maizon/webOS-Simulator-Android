@@ -271,6 +271,14 @@ public final class NativeLinuxRuntime {
                 output = new String(captured.toByteArray(), StandardCharsets.UTF_8);
                 if (captured.size() == OUTPUT_LIMIT) output += "\n[Saída truncada após 96 KiB]";
             }
+            if (code == 126 && (output.contains("Permission denied")
+                    || output.contains("not executable"))) {
+                output += "\n\nDIAGNÓSTICO: O shell Linux recebeu EACCES (126). "
+                        + "O emulador restaura a permissão Unix de execução antes de iniciar o ELF. "
+                        + "Se persistir, verifique restrições Android SELinux/noexec, "
+                        + "loader ARM32, formato ELF e permissões de montagem. "
+                        + "Isso não comprova falta de potência do processador.";
+            }
             return new Result(code, !completed, output, mode);
         } finally {
             if (running == process) running = null;
@@ -297,11 +305,35 @@ public final class NativeLinuxRuntime {
         String elf = readElfArchitecture(check);
         String blocker = architectureBlocker(context, elf);
         if (blocker != null) throw new IOException(blocker);
+        // Compatibility repair for IPKs installed by v1.4.0 and earlier:
+        // IpkInstaller previously discarded TAR executable mode and the
+        // original ELF remained 0644. Only the explicitly approved ELF is
+        // marked owner-executable; no scripts or libraries are chmod'ed here.
+        ensureExecutableElf(check);
         File proot = executable("libmaizon_proot.so");
         String abi = hostAbi(context);
         File root = runtimeRoot(abi);
         return execute(NativeLinuxRunPlan.app(proot.getAbsolutePath(), root.getCanonicalPath(),
                         app.directory, path), "Linux ELF " + elf + " via PRoot " + abi, 120_000);
+    }
+
+    /**
+     * Restores the owner executable bit for a user-approved imported ELF.
+     * Does not bypass SELinux or filesystems mounted noexec: those may still
+     * reject execve even when File.canExecute() reports true.
+     */
+    static void ensureExecutableElf(File file) throws IOException {
+        if (!file.isFile() || readElfArchitecture(file) == null) {
+            throw new IOException("Entrada não é um executável ELF legível.");
+        }
+        if (!file.canExecute() && !file.setExecutable(true, true)) {
+            throw new IOException("Não foi possível restaurar a permissão de execução: " +
+                    file.getName());
+        }
+        if (!file.canExecute()) {
+            throw new IOException("ELF ainda sem permissão Unix de execução após chmod: " +
+                    file.getName());
+        }
     }
 
     private static boolean isELF(File file) {

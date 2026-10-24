@@ -1,10 +1,20 @@
-# Maizon webOS Emulator — 1.4.0 (Linux ELF ARM32/ARM64 experimental)
+# Maizon webOS Emulator — 1.4.1 (correção de permissões ELF)
 
 Projeto independente da comunidade **Maizon**: um único APK universal Android ARM32/ARM64 que instala IPKs, executa apps HTML5/JavaScript/WebAssembly e inclui um **motor Linux ELF experimental** com PRoot e Debian para executar programas nativos de terminal quando a ABI e dependências forem compatíveis. Perfil de referência: LG UQ8050PSB / webOS TV 22.
 
 > **AVISO:** não é firmware LG. O PRoot executa Linux ELF experimental **sem janela gráfica nativa, GPU, áudio, SDL ou QEMU-user**; RetroArch e outros jogos Linux gráficos **não estão comprovados nem disponíveis em gameplay**. O código ELF roda sob o mesmo UID e permissões do nosso app; execute apenas IPKs confiáveis. WebView continua intacto. Nenhuma porcentagem de compatibilidade é garantida.
 
 O conteúdo original dos IPKs é preservado: correções de HTTP/JavaScript/viewport são aplicadas pelo servidor durante o carregamento, sem modificar os arquivos de origem. O repositório MaizoSNES Android não é alterado.
+
+## Correção 1.4.1 — erro 126 / `Permission denied` de ELF nativo
+
+**Problema reportado em Android:** `Runtime: Linux ELF ELF32 ARM via PRoot arm64-v8a`; `Exit code: 126`; `maizon: exec: line 0: /app/retroarch: Permission denied`.
+
+**Causa identificada no código:** o instalador extraía entradas TAR usando `FileOutputStream`, sem restaurar o bit Unix de execução `0755` original. Um executável ELF podia virar arquivo `0644`, e o BusyBox `exec` devolvia EACCES/126.
+
+**Mudanças:** ao instalar novo IPK, preservamos o **bit x somente nas entradas marcadas executáveis no TAR**; arquivos de dados permanecem não executáveis. Em IPKs já instalados pela versão anterior, o motor restaura **somente no ELF escolhido explicitamente para execução pelo usuário** a permissão de proprietário, após validar o cabeçalho ELF. Não é necessário reinstalar o IPK para esse reparo. Testes JUnit cobrem TAR 0755/0644 e migração.
+
+**Limite importante:** o reparo de `chmod` não contorna SELinux, armazenamento `noexec`, ausência de loader ARM32, dependências Linux, serviços webOS ou ausência de interface gráfica. Se o erro 126 continuar, ele pode indicar uma dessas restrições. Para separar falha geral do PRoot da falha específica do IPK, execute **Configurações → Testar execução Linux ELF (PRoot)** e compartilhe o resultado.
 
 ## Novidades 1.4.0 — motor Linux ARMv7 + ARM64 no mesmo APK
 
@@ -67,7 +77,7 @@ Abra **Actions → Android APK → última execução verde → Artifacts → we
 
 - app-debug.apk: APK Android instalável, assinado pela chave debug da execução do CI. **Contém PRoot nativo e sysroots Linux nas duas ABIs** ARMv7/ARM64 e Java/WebView; Android minSdk 26. O APK não é universal x86 neste estágio.
 - app-release-unsigned.apk: build Release **sem assinatura**, não instalável diretamente.
-- A Action publica o APK debug instalável como pré-release **v1.4.0** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
+- A Action publica o APK debug instalável como pré-release **v1.4.1** no GitHub Releases. Isso cria uma segunda cópia, fora dos Artifacts, quando as permissões permitem.
 - A assinatura da build debug pode variar entre execuções CI. Se o Android rejeitar a atualização por assinatura incompatível, exporte dados antes de desinstalar a versão anterior.
 
 ## Funcionalidades

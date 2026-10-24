@@ -10,6 +10,16 @@ Também inclui duas sysroots pequenas de **Debian GNU/Linux armhf e arm64**, ext
 
 Esta entrega NÃO possui: QEMU-user instalado no APK para executar hóspedes de outra arquitetura; compositor X11/Wayland; SDL integrado; áudio Linux; Vulkan/OpenGL de aplicativos Linux; integração webOS de serviços proprietários; DRM. A GPU e o som de aplicativos HTML5/WASM permanecem funcionando no Android WebView como antes. **RetroArch webOS nativo, jogos Linux com janela e aplicativos gráficos NÃO são declarados funcionais.**
 
+## Diagnóstico: 126 / Permission denied (corrigido no instalador 1.4.1)
+
+Se aparecer `maizon: exec: line 0: /app/retroarch: Permission denied`, o código 126 significa que o shell **não conseguiu executar o arquivo**, não que o processador seja lento.
+
+Foi encontrada uma falha de permissões específica: `IpkInstaller.extractTar` deixava o ELF sem o bit `x` original porque `FileOutputStream` não preserva o `0755` do TAR. A versão 1.4.1 restaura a permissão de execução na importação e repara ELFs já importados **apenas quando o usuário confirma Executar ELF**.
+
+O Android 10+ também pode negar a execução direta por políticas SELinux/noexec. O bit `x` correto **não garante** que o sistema libere o `execve` para programas de terceiros. O PRoot pode ter problemas específicos com binários no armazenamento privado do aplicativo. Se o erro persistir, registrar resultado do probe, versão Android, lista de ABIs e saída completa do PRoot.
+
+Para o caso `ELF32 ARM` em hospedeiro `arm64-v8a`, o aparelho também precisa oferecer ABI Android 32 bits funcional ou tradução QEMU-user. O APK atual inclui loader PRoot ARM32, mas **não inclui QEMU-user Android**. Confirmar abertura de janela, áudio e controles de RetroArch continua pendente.
+
 ## Fluxo no aplicativo
 
 1. **+ Instalar IPK**; o instalador preserva a aplicação e o restante dos arquivos nativos externos em `.webos-package`, sem executá-los durante a instalação.

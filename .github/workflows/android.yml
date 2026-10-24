@@ -76,7 +76,7 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: maizon-webos-emulator-1.4.0-universal-apks
+          name: maizon-webos-emulator-1.4.1-universal-apks
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
@@ -87,16 +87,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="v1.4.0"
-          cp app/build/outputs/apk/debug/app-debug.apk maizon-webos-emulator-v1.4.0-universal-debug.apk
-          sha256sum maizon-webos-emulator-v1.4.0-universal-debug.apk > maizon-webos-emulator-v1.4.0-universal-debug.apk.sha256
+          VERSION="v1.4.1"
+          cp app/build/outputs/apk/debug/app-debug.apk maizon-webos-emulator-v1.4.1-universal-debug.apk
+          sha256sum maizon-webos-emulator-v1.4.1-universal-debug.apk > maizon-webos-emulator-v1.4.1-universal-debug.apk.sha256
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
             gh release create "$VERSION" \
-              --title "Maizon webOS Emulator 1.4.0 — Linux ELF PRoot ARM32/ARM64 (experimental)" \
-              --notes "ARM32+ARM64 single debug APK with independently-built GPL-2.0 PRoot launchers and small Debian Linux ARM sysroots. Experimental terminal Linux ELF execution; GPU/SDL/Wayland/RetroArch native are NOT operational or hardware-validated. Existing MaizoSNES WebGL/WSS/LAN retained. Source and licences in repo." \
+              --title "Maizon webOS Emulator 1.4.1 — Linux ELF permission repair" \
+              --notes "ARM32+ARM64 single debug APK with independently-built GPL-2.0 PRoot launchers and small Debian Linux ARM sysroots. Experimental Linux ELF CLI execution with TAR executable-bit preservation and migration for v1.4.0 IPKs. Remaining Android noexec/SELinux restrictions may still apply; GPU/SDL/Wayland/RetroArch native are NOT operational or hardware-validated. Existing MaizoSNES WebGL/WSS/LAN retained. Source and licences in repo." \
               --prerelease
           fi
           gh release upload "$VERSION" \
-            maizon-webos-emulator-v1.4.0-universal-debug.apk \
-            maizon-webos-emulator-v1.4.0-universal-debug.apk.sha256 --clobber
+            maizon-webos-emulator-v1.4.1-universal-debug.apk \
+            maizon-webos-emulator-v1.4.1-universal-debug.apk.sha256 --clobber
 
