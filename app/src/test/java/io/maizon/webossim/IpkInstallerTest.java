@@ -161,30 +161,35 @@ public class IpkInstallerTest {
         return out.toByteArray();
     }
 
-    @Test public void installingIpkPreservesUnixExecuteBitsWithoutMakingDataExecutable()
+    /**
+     * The pure JVM Android Gradle unit-test runtime stubs org.json.JSONObject,
+     * so exercise the extraction routine directly instead of install().
+     */
+    @Test public void extractingIpkPreservesUnixExecuteBitsWithoutMakingDataExecutable()
             throws Exception {
-        File storage = temp.newFolder("native-install");
-        IpkInstaller.InstalledApp app = IpkInstaller.install(
-                new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
-        File executable = new File(app.directory, "retroarch");
-        File data = new File(app.directory, "readme.txt");
-        assertEquals(NativeIpkInspector.Kind.NATIVE, app.runtime.kind);
+        File storage = temp.newFolder("native-extract");
+        IpkInstaller.extract(new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
+        File app = new File(storage, "usr/palm/applications/com.maizon.elfperm");
+        File executable = new File(app, "retroarch");
+        File data = new File(app, "readme.txt");
+        NativeIpkInspector.Report report = NativeIpkInspector.inspect(app, "retroarch", "native");
+        assertEquals(NativeIpkInspector.Kind.NATIVE, report.kind);
         assertTrue("TAR 0755 must be preserved for Linux ELF", executable.canExecute());
         assertFalse("TAR 0644 data must not become executable", data.canExecute());
     }
 
     @Test public void repairsNativeExecutablesInstalledBeforePermissionFix()
             throws Exception {
-        File storage = temp.newFolder("legacy-native-install");
-        IpkInstaller.InstalledApp app = IpkInstaller.install(
-                new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
-        File executable = new File(app.directory, "retroarch");
+        File storage = temp.newFolder("legacy-extract");
+        IpkInstaller.extract(new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
+        File app = new File(storage, "usr/palm/applications/com.maizon.elfperm");
+        File executable = new File(app, "retroarch");
         assertTrue(executable.setExecutable(false, false));
         assertFalse(executable.canExecute());
 
         NativeLinuxRuntime.ensureExecutableElf(executable);
         assertTrue("Restores previously stripped ELF execute permission", executable.canExecute());
-        File readme = new File(app.directory, "readme.txt");
+        File readme = new File(app, "readme.txt");
         try {
             NativeLinuxRuntime.ensureExecutableElf(readme);
             fail("Non-ELF must never be chmod executable");
