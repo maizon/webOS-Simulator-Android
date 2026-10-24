@@ -117,4 +117,83 @@ public class IpkInstallerTest {
         IpkInstaller.extract(new ByteArrayInputStream(sampleCompressed("bz2")), dest);
         assertTrue(new File(dest, "usr/palm/applications/compat/index.html").isFile());
     }
+
+    /**
+     * Regression: tar(5) carries owner execute bits, whereas FileOutputStream
+     * creates 0644 files. PRoot's shell then returns 126/EACCES for an ELF.
+     */
+    private byte[] nativeIpkWithPermissions() throws Exception {
+        String base = "usr/palm/applications/com.maizon.elfperm/";
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(compressed);
+             TarArchiveOutputStream tar = new TarArchiveOutputStream(gzip)) {
+            byte[] info = ("{\"id\":\"com.maizon.elfperm\",\"title\":\"ELF test\","
+                    + "\"type\":\"native\",\"main\":\"retroarch\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            TarArchiveEntry manifest = new TarArchiveEntry(base + "appinfo.json");
+            manifest.setMode(0644);
+            manifest.setSize(info.length);
+            tar.putArchiveEntry(manifest); tar.write(info); tar.closeArchiveEntry();
+
+            byte[] elf = new byte[64];
+            elf[0] = 0x7f; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
+            elf[4] = 1; elf[5] = 1; elf[18] = 40;
+            TarArchiveEntry binary = new TarArchiveEntry(base + "retroarch");
+            binary.setMode(0755);
+            binary.setSize(elf.length);
+            tar.putArchiveEntry(binary); tar.write(elf); tar.closeArchiveEntry();
+
+            byte[] data = "not executable".getBytes(StandardCharsets.UTF_8);
+            TarArchiveEntry file = new TarArchiveEntry(base + "readme.txt");
+            file.setMode(0644);
+            file.setSize(data.length);
+            tar.putArchiveEntry(file); tar.write(data); tar.closeArchiveEntry();
+            tar.finish();
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ArArchiveOutputStream ar = new ArArchiveOutputStream(out)) {
+            byte[] archive = compressed.toByteArray();
+            ar.putArchiveEntry(new ArArchiveEntry("data.tar.gz", archive.length));
+            ar.write(archive);
+            ar.closeArchiveEntry();
+            ar.finish();
+        }
+        return out.toByteArray();
+    }
+
+    /**
+     * The pure JVM Android Gradle unit-test runtime stubs org.json.JSONObject,
+     * so exercise the extraction routine directly instead of install().
+     */
+    @Test public void extractingIpkPreservesUnixExecuteBitsWithoutMakingDataExecutable()
+            throws Exception {
+        File storage = temp.newFolder("native-extract");
+        IpkInstaller.extract(new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
+        File app = new File(storage, "usr/palm/applications/com.maizon.elfperm");
+        File executable = new File(app, "retroarch");
+        File data = new File(app, "readme.txt");
+        NativeIpkInspector.Report report = NativeIpkInspector.inspect(app, "retroarch", "native");
+        assertEquals(NativeIpkInspector.Kind.NATIVE, report.kind);
+        assertTrue("TAR 0755 must be preserved for Linux ELF", executable.canExecute());
+        assertFalse("TAR 0644 data must not become executable", data.canExecute());
+    }
+
+    @Test public void repairsNativeExecutablesInstalledBeforePermissionFix()
+            throws Exception {
+        File storage = temp.newFolder("legacy-extract");
+        IpkInstaller.extract(new ByteArrayInputStream(nativeIpkWithPermissions()), storage);
+        File app = new File(storage, "usr/palm/applications/com.maizon.elfperm");
+        File executable = new File(app, "retroarch");
+        assertTrue(executable.setExecutable(false, false));
+        assertFalse(executable.canExecute());
+
+        NativeLinuxRuntime.ensureExecutableElf(executable);
+        assertTrue("Restores previously stripped ELF execute permission", executable.canExecute());
+        File readme = new File(app, "readme.txt");
+        try {
+            NativeLinuxRuntime.ensureExecutableElf(readme);
+            fail("Non-ELF must never be chmod executable");
+        } catch (IOException expected) { /* safe */ }
+        assertFalse(readme.canExecute());
+    }
 }

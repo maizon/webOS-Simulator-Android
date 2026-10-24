@@ -119,6 +119,15 @@ public final class IpkInstaller {
                     remaining -= n;
                 }
             }
+            // TAR permissions are not inherited by FileOutputStream: a default
+            // extracted ELF becomes 0644 and BusyBox 'exec' reports EACCES
+            // (exit 126). Keep owner-only execution when TAR sets any x bit.
+            // Never make HTML/data or other non-executable entries executable.
+            if ((entry.getMode() & 0111) != 0 &&
+                    !target.setExecutable(true, true)) {
+                throw new IOException("Não foi possível restaurar permissão de execução do IPK: "
+                        + entry.getName());
+            }
         }
     }
 
