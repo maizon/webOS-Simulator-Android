@@ -82,21 +82,14 @@ public final class NativeLinuxRuntime {
     public static String architectureBlocker(Context context, String elfArch) {
         String host = hostAbi(context);
         if (host.isEmpty()) return "Runtime nativo indisponível na ABI Android atual.";
-        if (elfArch == null || elfArch.startsWith("ELF desconhecido")) return "Cabeçalho ELF não reconhecido.";
-        if (elfArch.contains("AArch64")) {
-            return "arm64-v8a".equals(host) ? null
-                    : "O ELF Linux ARM64 requer um aparelho Android ARM64.";
+        File loader = new File(context.getApplicationInfo().nativeLibraryDir,
+                "libmaizon_loader32.so");
+        try {
+            NativeLinuxRunPlan.guestAbi(host, elfArch, loader.isFile());
+            return null;
+        } catch (IOException e) {
+            return e.getMessage();
         }
-        if (elfArch.contains("ARM")) {
-            if ("armeabi-v7a".equals(host)) return null;
-            if ("arm64-v8a".equals(host) && Build.SUPPORTED_32_BIT_ABIS.length > 0) {
-                File loader = new File(context.getApplicationInfo().nativeLibraryDir,
-                        "libmaizon_loader32.so");
-                return loader.isFile() ? null : "PRoot ARM32 loader não foi empacotado.";
-            }
-            return "Este Android ARM64 não oferece execução ARM32. QEMU-user ainda não está integrado.";
-        }
-        return "Arquitetura " + elfArch + " não suportada pelo motor ARM atual; QEMU-user ausente.";
     }
 
     private File runtimeRoot(String abi) throws IOException {
@@ -271,6 +264,13 @@ public final class NativeLinuxRuntime {
                 output = new String(captured.toByteArray(), StandardCharsets.UTF_8);
                 if (captured.size() == OUTPUT_LIMIT) output += "\n[Saída truncada após 96 KiB]";
             }
+            if (code == 127 && (output.contains("not found") ||
+                    output.contains("No such file"))) {
+                output += "\n\nDIAGNÓSTICO: exit 127/ENOENT ao iniciar ELF. "
+                        + "O executável pode existir; o kernel pode não encontrar "
+                        + "o carregador PT_INTERP ou uma dependência. Confirme também "
+                        + "o bind /app dentro do PRoot e a arquitetura Linux do guest.";
+            }
             if (code == 126 && (output.contains("Permission denied")
                     || output.contains("not executable"))) {
                 output += "\n\nDIAGNÓSTICO: O shell Linux recebeu EACCES (126). "
@@ -311,10 +311,27 @@ public final class NativeLinuxRuntime {
         // marked owner-executable; no scripts or libraries are chmod'ed here.
         ensureExecutableElf(check);
         File proot = executable("libmaizon_proot.so");
-        String abi = hostAbi(context);
-        File root = runtimeRoot(abi);
+        String host = hostAbi(context);
+        File loader32 = new File(context.getApplicationInfo().nativeLibraryDir,
+                "libmaizon_loader32.so");
+        // IMPORTANT: do not use arm64 glibc for an ELF32 ARM IPK.
+        // The PRoot process ABI (Android host) and the Linux guest ABI differ.
+        String guestAbi = NativeLinuxRunPlan.guestAbi(host, elf, loader32.isFile());
+        File root = runtimeRoot(guestAbi);
+        String interpreter = ElfProgramInspector.interpreter(check);
+        if (interpreter != null && !ElfProgramInspector.interpreterPresent(root, interpreter)) {
+            throw new IOException("ELF encontrado em /app/" + path +
+                    ", mas seu carregador dinâmico Linux PT_INTERP está ausente: " +
+                    interpreter + "\nAmbiente escolhido: " + guestAbi +
+                    " (host Android " + host + ").\nO shell pode mostrar 'not found' " +
+                    "mesmo quando o arquivo existe. Instalar bibliotecas " +
+                    "glibc comuns não substitui carregadores específicos do webOS.");
+        }
         return execute(NativeLinuxRunPlan.app(proot.getAbsolutePath(), root.getCanonicalPath(),
-                        app.directory, path), "Linux ELF " + elf + " via PRoot " + abi, 120_000);
+                        app.directory, path), "Linux ELF " + elf + " · guest " +
+                        guestAbi + " via PRoot " + host +
+                        (interpreter == null ? " · sem PT_INTERP" : " · PT_INTERP " + interpreter),
+                        120_000);
     }
 
     /**
