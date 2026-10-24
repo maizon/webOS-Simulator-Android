@@ -2,6 +2,8 @@ name: Build Maizo IPK Sender APK
 on:
   push:
     branches: [build/maizo-ipk-sender]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 jobs:
   apk:
